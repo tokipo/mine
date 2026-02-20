@@ -2,9 +2,8 @@ import os
 import asyncio
 import collections
 import shutil
-import psutil
 from fastapi import FastAPI, WebSocket, Request, Response, Form, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -16,11 +15,8 @@ output_history = collections.deque(maxlen=300)
 connected_clients = set()
 BASE_DIR = os.path.abspath("/app")
 
-# Global dict to store cached stats so the UI doesn't lag when polling
-cached_stats = { "cpu": 0, "ram_used": 0, "ram_total": 16, "storage_used": 0, "storage_total": 50 }
-
 # -----------------
-# HTML FRONTEND (Ultimate SaaS Web3 Dashboard)
+# HTML FRONTEND (Web3 / Modern SaaS Dashboard)
 # -----------------
 HTML_CONTENT = """
 <!DOCTYPE html>
@@ -28,32 +24,32 @@ HTML_CONTENT = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Server Dashboard</title>
+    <title>ServerSpace | Dashboard</title>
     
-    <!-- Premium Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <!-- Phosphor Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <!-- Terminal -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
     <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
             theme: {
                 extend: {
-                    fontFamily: { sans: ['Plus Jakarta Sans', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+                    fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
                     colors: {
-                        base: '#080B11',
-                        surface: '#121620',
-                        surfaceHover: '#1A1F2D',
-                        border: '#22283A',
-                        primary: '#6366F1',
-                        secondary: '#A855F7',
-                        accent: '#06B6D4'
+                        base: '#06080D',
+                        surface: '#10141F',
+                        surfaceHover: '#1A2133',
+                        border: '#232B40',
+                        primary: '#8B5CF6',     /* Violet */
+                        secondary: '#D946EF',   /* Fuchsia */
+                        accent: '#0EA5E9'       /* Cyan */
+                    },
+                    boxShadow: {
+                        'neon': '0 0 20px rgba(139, 92, 246, 0.3)',
+                        'neon-strong': '0 0 30px rgba(217, 70, 239, 0.4)'
                     }
                 }
             }
@@ -62,314 +58,276 @@ HTML_CONTENT = """
     <style>
         body { background-color: theme('colors.base'); color: #F8FAFC; overflow: hidden; -webkit-font-smoothing: antialiased; }
         
-        /* Dashboard Cards */
+        /* Ambient Background Glows */
+        .ambient-glow-1 { position: absolute; top: -10%; left: -10%; width: 40vw; height: 40vw; background: radial-gradient(circle, rgba(139,92,246,0.15) 0%, rgba(0,0,0,0) 70%); border-radius: 50%; pointer-events: none; z-index: 0; filter: blur(60px); }
+        .ambient-glow-2 { position: absolute; bottom: -20%; right: -10%; width: 50vw; height: 50vw; background: radial-gradient(circle, rgba(217,70,239,0.1) 0%, rgba(0,0,0,0) 70%); border-radius: 50%; pointer-events: none; z-index: 0; filter: blur(80px); }
+
+        /* Dashboard Cards - Glassmorphism */
         .premium-card {
-            background: theme('colors.surface');
-            border: 1px solid theme('colors.border');
-            border-radius: 20px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            background: rgba(16, 20, 31, 0.6);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+            z-index: 10;
+        }
+
+        /* Gradients & Buttons */
+        .text-gradient { background: linear-gradient(135deg, theme('colors.primary'), theme('colors.secondary')); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .bg-gradient-btn { 
+            background: linear-gradient(135deg, theme('colors.primary'), theme('colors.secondary')); 
+            box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3); 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
             position: relative;
             overflow: hidden;
         }
-
-        /* Gradients & Glows */
-        .text-gradient { background: linear-gradient(135deg, theme('colors.primary'), theme('colors.secondary')); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-        .bg-gradient-btn { background: linear-gradient(135deg, theme('colors.primary'), theme('colors.secondary')); box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3); transition: all 0.2s ease; }
-        .bg-gradient-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4); filter: brightness(1.1); }
+        .bg-gradient-btn::before {
+            content: ''; position: absolute; top: 0; left: -100%; width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: all 0.5s ease;
+        }
+        .bg-gradient-btn:hover { transform: translateY(-2px); box-shadow: theme('boxShadow.neon-strong'); filter: brightness(1.1); }
+        .bg-gradient-btn:hover::before { left: 100%; }
         
         /* Terminal Fixing for Mobile Wrapping */
-        .term-container { flex: 1; min-width: 0; min-height: 0; width: 100%; height: 100%; border-radius: 12px; overflow: hidden; position: relative; }
-        .term-wrapper { padding: 12px; height: 100%; width: 100%; }
+        .term-container { flex: 1; min-width: 0; min-height: 0; width: 100%; height: 100%; overflow: hidden; position: relative; }
+        .term-wrapper { padding: 16px; height: 100%; width: 100%; }
         .xterm .xterm-viewport { overflow-y: auto !important; width: 100% !important; background-color: transparent !important; }
         .xterm-screen { width: 100% !important; }
         
-        /* Progress Bars */
-        .progress-track { background: theme('colors.border'); border-radius: 999px; height: 6px; overflow: hidden; }
-        .progress-fill { height: 100%; border-radius: 999px; transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1); }
-
         /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: theme('colors.border'); border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #333C52; }
+        ::-webkit-scrollbar-thumb { background: theme('colors.border'); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: theme('colors.primary'); }
 
-        /* Mobile Bottom Nav Glass */
+        /* Navigation States */
+        .nav-item { color: #64748B; transition: all 0.3s ease; position: relative; }
+        .nav-item:hover { color: #F8FAFC; background: rgba(255,255,255,0.03); }
+        .nav-item.active { color: #F8FAFC; background: linear-gradient(90deg, rgba(139, 92, 246, 0.15) 0%, transparent 100%); border-left: 3px solid theme('colors.primary'); }
+        
+        /* Mobile Nav Floating Glass */
         .mobile-nav-glass {
-            background: rgba(18, 22, 32, 0.85);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border-top: 1px solid theme('colors.border');
+            background: rgba(16, 20, 31, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+            margin: 0 16px 16px 16px;
+            border-radius: 24px;
         }
 
-        /* Nav active states */
-        .nav-item { color: #64748B; transition: all 0.2s; }
-        .nav-item:hover { color: #F8FAFC; background: theme('colors.surfaceHover'); }
-        .nav-item.active { color: #F8FAFC; background: theme('colors.primary'); box-shadow: 0 4px 15px rgba(99, 102, 241, 0.2); }
+        .mob-nav-item { color: #64748B; transition: color 0.3s; }
+        .mob-nav-item.active { color: theme('colors.primary'); text-shadow: 0 0 15px rgba(139,92,246,0.5); }
         
-        /* Mobile Nav active states */
-        .mob-nav-item { color: #64748B; }
-        .mob-nav-item.active { color: theme('colors.primary'); }
-        .mob-nav-indicator { display: none; height: 4px; width: 4px; border-radius: 50%; background: theme('colors.primary'); margin-top: 2px; }
-        .mob-nav-item.active .mob-nav-indicator { display: block; }
-
-        .fade-in { animation: fadeIn 0.3s ease-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        /* Animations */
+        .fade-in { animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
         .hidden-tab { display: none !important; }
-        
-        /* SVG Background Wave */
-        .bg-wave { position: absolute; bottom: 0; left: 0; right: 0; opacity: 0.1; transform: translateY(20%); pointer-events: none; }
     </style>
 </head>
-<body class="flex flex-col md:flex-row h-[100dvh] w-full text-sm">
+<body class="flex flex-col md:flex-row h-[100dvh] w-full text-sm md:text-base relative">
 
-    <!-- Desktop Sidebar -->
-    <aside class="hidden md:flex flex-col w-[260px] premium-card m-4 mr-0 border-y-0 border-l-0 rounded-none rounded-l-2xl border-r border-border bg-surface shrink-0 z-20">
-        <div class="p-6 pb-2">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg">
-                    <i class="ph ph-cube text-xl text-white"></i>
+    <div class="ambient-glow-1"></div>
+    <div class="ambient-glow-2"></div>
+
+    <aside class="hidden md:flex flex-col w-[280px] bg-surface/40 backdrop-blur-xl border-r border-white/5 shrink-0 z-20 shadow-2xl">
+        <div class="p-8 pb-4">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-gradient-btn flex items-center justify-center shadow-neon">
+                    <i class="ph ph-hexagon text-2xl text-white"></i>
                 </div>
                 <div>
-                    <h1 class="font-bold text-lg text-white leading-tight">Server<span class="text-gradient">Space</span></h1>
-                    <p class="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Engine v2.0</p>
+                    <h1 class="font-bold text-xl text-white tracking-tight">Server<span class="text-gradient">Space</span></h1>
+                    <p class="text-[11px] text-primary font-mono uppercase tracking-widest mt-0.5">Engine v2.0</p>
                 </div>
             </div>
         </div>
 
-        <div class="px-6 py-4">
-            <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Menu</div>
+        <div class="px-6 py-6 flex-grow">
+            <div class="text-[11px] font-bold text-slate-500 uppercase tracking-widest mb-4 px-3">Dashboard</div>
             <nav class="flex flex-col gap-2">
-                <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-item active flex items-center gap-3 px-4 py-3 rounded-xl font-medium">
-                    <i class="ph ph-squares-four text-lg"></i> Dashboard
+                <button onclick="switchTab('console')" id="nav-console" class="nav-item active flex items-center gap-4 px-4 py-3.5 rounded-r-xl font-medium">
+                    <i class="ph ph-terminal-window text-xl"></i> Console
                 </button>
-                <button onclick="switchTab('files')" id="nav-files" class="nav-item flex items-center gap-3 px-4 py-3 rounded-xl font-medium">
-                    <i class="ph ph-folder-open text-lg"></i> Files
+                <button onclick="switchTab('files')" id="nav-files" class="nav-item flex items-center gap-4 px-4 py-3.5 rounded-r-xl font-medium border-l-3 border-transparent">
+                    <i class="ph ph-folder-notch text-xl"></i> File Explorer
                 </button>
             </nav>
         </div>
 
-        <div class="mt-auto p-6">
-            <div class="bg-surfaceHover border border-border rounded-xl p-4 flex items-center gap-3">
-                <div class="relative flex h-3 w-3">
-                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+        <div class="p-6">
+            <div class="bg-black/30 border border-white/5 rounded-2xl p-4 flex items-center gap-4 backdrop-blur-md">
+                <div class="relative flex h-4 w-4">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-60"></span>
+                  <span class="relative inline-flex rounded-full h-4 w-4 bg-accent shadow-[0_0_10px_#0EA5E9]"></span>
                 </div>
                 <div>
-                    <div class="text-xs font-bold text-white">Status Online</div>
-                    <div class="text-[10px] text-slate-400">Container Active</div>
+                    <div class="text-sm font-semibold text-white">System Online</div>
+                    <div class="text-xs font-mono text-slate-400 mt-0.5">Latency: 24ms</div>
                 </div>
             </div>
         </div>
     </aside>
 
-    <!-- Mobile Header -->
-    <header class="md:hidden flex justify-between items-center px-5 py-4 bg-surface border-b border-border shrink-0 z-20">
-        <div class="flex items-center gap-2">
-            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
-                <i class="ph ph-cube text-white"></i>
+    <header class="md:hidden flex justify-between items-center px-6 py-5 bg-surface/80 backdrop-blur-md border-b border-white/5 shrink-0 z-20">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-btn flex items-center justify-center">
+                <i class="ph ph-hexagon text-xl text-white"></i>
             </div>
-            <h1 class="font-bold text-base text-white">Server<span class="text-gradient">Space</span></h1>
+            <h1 class="font-bold text-lg text-white">Server<span class="text-gradient">Space</span></h1>
         </div>
-        <div class="relative flex h-2 w-2">
-          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-          <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+        <div class="relative flex h-3 w-3">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-60"></span>
+          <span class="relative inline-flex rounded-full h-3 w-3 bg-accent"></span>
         </div>
     </header>
 
-    <!-- Main Workspace -->
-    <main class="flex-grow flex flex-col p-4 md:p-6 overflow-hidden min-w-0 bg-base relative z-10">
+    <main class="flex-grow flex flex-col p-4 md:p-8 overflow-hidden min-w-0 relative z-10 pb-24 md:pb-8">
         
-        <!-- DASHBOARD TAB -->
-        <div id="tab-dashboard" class="h-full flex flex-col gap-4 md:gap-6 fade-in min-w-0">
-            
-            <!-- Metrics Row (Strictly 16GB / 2 Cores / 50GB) -->
-            <div class="grid grid-cols-3 gap-3 md:gap-6 shrink-0">
-                
-                <!-- RAM Card -->
-                <div class="premium-card p-4 flex flex-col justify-between h-[100px] md:h-[130px]">
-                    <div class="flex justify-between items-start">
-                        <div class="p-2 rounded-lg bg-primary/10 text-primary hidden md:block"><i class="ph-fill ph-memory text-xl"></i></div>
-                        <i class="ph-fill ph-memory text-primary text-xl md:hidden"></i>
-                        <span class="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wide">RAM Usage</span>
-                    </div>
-                    <div>
-                        <div class="flex items-end gap-1 md:gap-2 mb-2">
-                            <span class="text-lg md:text-3xl font-bold text-white font-mono leading-none" id="ram-val">0.0</span>
-                            <span class="text-[10px] md:text-sm text-slate-500 font-mono mb-0.5">/ 16 GB</span>
-                        </div>
-                        <div class="progress-track"><div id="ram-bar" class="progress-fill bg-primary w-0"></div></div>
-                    </div>
-                </div>
-
-                <!-- CPU Card -->
-                <div class="premium-card p-4 flex flex-col justify-between h-[100px] md:h-[130px]">
-                    <div class="flex justify-between items-start">
-                        <div class="p-2 rounded-lg bg-secondary/10 text-secondary hidden md:block"><i class="ph-fill ph-cpu text-xl"></i></div>
-                        <i class="ph-fill ph-cpu text-secondary text-xl md:hidden"></i>
-                        <span class="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wide">vCores</span>
-                    </div>
-                    <div>
-                        <div class="flex items-end gap-1 md:gap-2 mb-2">
-                            <span class="text-lg md:text-3xl font-bold text-white font-mono leading-none" id="cpu-val">0</span>
-                            <span class="text-[10px] md:text-sm text-slate-500 font-mono mb-0.5">% of 2</span>
-                        </div>
-                        <div class="progress-track"><div id="cpu-bar" class="progress-fill bg-secondary w-0"></div></div>
-                    </div>
-                </div>
-
-                <!-- Storage Card -->
-                <div class="premium-card p-4 flex flex-col justify-between h-[100px] md:h-[130px]">
-                    <div class="flex justify-between items-start">
-                        <div class="p-2 rounded-lg bg-accent/10 text-accent hidden md:block"><i class="ph-fill ph-hard-drives text-xl"></i></div>
-                        <i class="ph-fill ph-hard-drives text-accent text-xl md:hidden"></i>
-                        <span class="text-[10px] md:text-xs font-bold text-slate-400 uppercase tracking-wide">Disk Space</span>
-                    </div>
-                    <div>
-                        <div class="flex items-end gap-1 md:gap-2 mb-2">
-                            <span class="text-lg md:text-3xl font-bold text-white font-mono leading-none" id="disk-val">0.0</span>
-                            <span class="text-[10px] md:text-sm text-slate-500 font-mono mb-0.5">/ 50 GB</span>
-                        </div>
-                        <div class="progress-track"><div id="disk-bar" class="progress-fill bg-accent w-0"></div></div>
-                    </div>
+        <div id="tab-console" class="h-full flex flex-col fade-in min-w-0">
+            <div class="mb-4 hidden md:flex justify-between items-end">
+                <div>
+                    <h2 class="text-2xl font-bold text-white">Live Terminal</h2>
+                    <p class="text-slate-400 text-sm mt-1">Execute commands directly on the server container.</p>
                 </div>
             </div>
 
-            <!-- Terminal Area -->
             <div class="premium-card flex flex-col flex-grow min-h-0">
-                <!-- Mac-style Terminal Header -->
-                <div class="bg-surface border-b border-border px-4 py-3 flex items-center justify-between z-10 shrink-0">
+                <div class="bg-black/40 border-b border-white/5 px-5 py-4 flex items-center justify-between z-10 shrink-0">
                     <div class="flex gap-2">
-                        <div class="w-3 h-3 rounded-full bg-[#EF4444]"></div>
-                        <div class="w-3 h-3 rounded-full bg-[#F59E0B]"></div>
-                        <div class="w-3 h-3 rounded-full bg-[#10B981]"></div>
+                        <div class="w-3.5 h-3.5 rounded-full bg-red-500/80 shadow-[0_0_8px_rgba(239,68,68,0.5)]"></div>
+                        <div class="w-3.5 h-3.5 rounded-full bg-yellow-500/80 shadow-[0_0_8px_rgba(234,179,8,0.5)]"></div>
+                        <div class="w-3.5 h-3.5 rounded-full bg-green-500/80 shadow-[0_0_8px_rgba(34,197,94,0.5)]"></div>
                     </div>
-                    <span class="text-xs font-mono text-slate-400">server_console ~ /app</span>
-                    <div class="w-12"></div> <!-- Spacer for center alignment -->
-                </div>
+                    <span class="text-xs font-mono text-slate-400 bg-white/5 px-3 py-1 rounded-full border border-white/5">root@serverspace:~</span>
+                    <div class="w-14"></div> </div>
                 
-                <!-- Terminal Container -->
-                <div class="term-container bg-[#080B11]">
+                <div class="term-container bg-transparent">
                     <div id="terminal" class="term-wrapper"></div>
                 </div>
 
-                <!-- Input Field -->
-                <div class="p-3 md:p-4 bg-surface/80 border-t border-border z-10 shrink-0">
+                <div class="p-3 md:p-5 bg-black/40 border-t border-white/5 z-10 shrink-0 backdrop-blur-xl">
                     <div class="relative flex items-center">
-                        <i class="ph ph-terminal text-primary absolute left-4 text-lg"></i>
-                        <input type="text" id="cmd-input" class="w-full bg-base border border-border focus:border-primary/50 text-white rounded-xl pl-12 pr-12 py-3 text-sm font-mono transition-all outline-none" placeholder="Enter command here...">
-                        <button onclick="sendCommand()" class="absolute right-2 p-2 bg-gradient-btn rounded-lg text-white">
-                            <i class="ph-bold ph-arrow-right"></i>
+                        <i class="ph ph-caret-right text-primary absolute left-5 text-xl animate-pulse"></i>
+                        <input type="text" id="cmd-input" class="w-full bg-surfaceHover/50 border border-white/10 focus:border-primary/50 focus:bg-surfaceHover text-white rounded-xl pl-12 pr-14 py-3.5 md:py-4 text-sm font-mono transition-all outline-none shadow-inner" placeholder="Enter command...">
+                        <button onclick="sendCommand()" class="absolute right-2 p-2.5 bg-gradient-btn rounded-lg text-white">
+                            <i class="ph-bold ph-paper-plane-right text-lg"></i>
                         </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- FILES TAB -->
-        <div id="tab-files" class="hidden-tab h-full flex flex-col premium-card overflow-hidden min-w-0">
-            <!-- Header -->
-            <div class="bg-surface px-5 py-4 border-b border-border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
-                <div class="flex items-center gap-2 text-sm font-mono text-slate-300 overflow-x-auto whitespace-nowrap w-full sm:w-auto" id="breadcrumbs">
-                    <!-- JS Breadcrumbs -->
-                </div>
-                <div class="flex gap-2 shrink-0">
-                    <input type="file" id="file-upload" class="hidden" onchange="uploadFile(event)">
-                    <button onclick="document.getElementById('file-upload').click()" class="bg-gradient-btn px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-2">
-                        <i class="ph-bold ph-upload-simple"></i> Upload
-                    </button>
-                    <button onclick="loadFiles(currentPath)" class="bg-surfaceHover border border-border px-3 py-2 rounded-xl text-slate-300 hover:text-white transition-colors">
-                        <i class="ph-bold ph-arrows-clockwise text-base"></i>
-                    </button>
-                </div>
-            </div>
+        <div id="tab-files" class="hidden-tab h-full flex flex-col min-w-0">
             
-            <!-- File Headers (Desktop only) -->
-            <div class="hidden sm:grid grid-cols-12 gap-4 px-6 py-3 bg-[#0D1017] border-b border-border text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">
-                <div class="col-span-7">Name</div>
-                <div class="col-span-3 text-right">Size</div>
-                <div class="col-span-2 text-right">Actions</div>
+            <div class="mb-4 hidden md:flex justify-between items-end">
+                <div>
+                    <h2 class="text-2xl font-bold text-white">File Explorer</h2>
+                    <p class="text-slate-400 text-sm mt-1">Manage, upload, and edit your server configurations.</p>
+                </div>
             </div>
 
-            <!-- File List -->
-            <div class="flex-grow overflow-y-auto bg-base p-2 md:p-3" id="file-list">
-                <!-- JS Files -->
+            <div class="flex flex-col flex-grow premium-card overflow-hidden min-w-0">
+                <div class="bg-black/40 px-5 md:px-6 py-4 md:py-5 border-b border-white/5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
+                    <div class="flex items-center gap-2 text-sm font-mono text-slate-300 overflow-x-auto whitespace-nowrap w-full sm:w-auto bg-surfaceHover/50 px-4 py-2 rounded-lg border border-white/5 shadow-inner" id="breadcrumbs">
+                        </div>
+                    <div class="flex gap-3 shrink-0">
+                        <input type="file" id="file-upload" class="hidden" onchange="uploadFile(event)">
+                        <button onclick="document.getElementById('file-upload').click()" class="bg-gradient-btn px-5 py-2.5 rounded-xl text-xs md:text-sm font-bold text-white flex items-center gap-2">
+                            <i class="ph-bold ph-upload-simple text-lg"></i> Upload
+                        </button>
+                        <button onclick="loadFiles(currentPath)" class="bg-white/5 border border-white/10 px-4 py-2.5 rounded-xl text-slate-300 hover:text-white hover:bg-white/10 transition-all shadow-lg">
+                            <i class="ph-bold ph-arrows-clockwise text-lg"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="hidden sm:grid grid-cols-12 gap-4 px-8 py-3 bg-white/[0.02] border-b border-white/5 text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">
+                    <div class="col-span-7">Filename</div>
+                    <div class="col-span-3 text-right">Size</div>
+                    <div class="col-span-2 text-right">Actions</div>
+                </div>
+
+                <div class="flex-grow overflow-y-auto bg-transparent p-3 md:p-4" id="file-list">
+                    </div>
             </div>
         </div>
     </main>
 
-    <!-- Mobile Bottom Navigation -->
-    <nav class="md:hidden mobile-nav-glass pb-safe pt-2 px-6 flex justify-around items-center shrink-0 z-50 rounded-t-2xl absolute bottom-0 w-full h-[70px]">
-        <button onclick="switchTab('dashboard')" id="mob-dashboard" class="mob-nav-item active flex flex-col items-center gap-1 w-16">
-            <i class="ph-fill ph-squares-four text-2xl"></i>
-            <span class="text-[10px] font-semibold">Dash</span>
-            <div class="mob-nav-indicator"></div>
+    <nav class="md:hidden mobile-nav-glass fixed bottom-0 left-0 right-0 py-3 px-8 flex justify-between items-center z-50">
+        <button onclick="switchTab('console')" id="mob-console" class="mob-nav-item active flex flex-col items-center gap-1.5 w-20">
+            <i class="ph-fill ph-terminal-window text-2xl"></i>
+            <span class="text-[10px] font-semibold tracking-wide uppercase">Console</span>
         </button>
-        <button onclick="switchTab('files')" id="mob-files" class="mob-nav-item flex flex-col items-center gap-1 w-16">
-            <i class="ph-fill ph-folder text-2xl"></i>
-            <span class="text-[10px] font-semibold">Files</span>
-            <div class="mob-nav-indicator"></div>
+        <div class="w-12 h-12 bg-gradient-btn rounded-full flex items-center justify-center shadow-neon -mt-6 border-[4px] border-[#080B11]">
+            <i class="ph ph-cube text-white text-xl"></i>
+        </div>
+        <button onclick="switchTab('files')" id="mob-files" class="mob-nav-item flex flex-col items-center gap-1.5 w-20">
+            <i class="ph-fill ph-folder-notch text-2xl"></i>
+            <span class="text-[10px] font-semibold tracking-wide uppercase">Files</span>
         </button>
     </nav>
 
-    <!-- File Editor Modal -->
-    <div id="editor-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4 z-[100] opacity-0 transition-opacity duration-300">
-        <div class="premium-card w-full max-w-4xl h-[85vh] flex flex-col transform scale-95 transition-transform duration-300" id="editor-card">
-            <div class="bg-surface px-5 py-4 flex justify-between items-center border-b border-border shrink-0">
-                <div class="flex items-center gap-3 text-sm font-mono text-white">
+    <div id="editor-modal" class="fixed inset-0 bg-black/60 backdrop-blur-md hidden items-center justify-center p-4 md:p-8 z-[100] opacity-0 transition-opacity duration-300">
+        <div class="premium-card w-full max-w-5xl h-[90vh] flex flex-col transform scale-95 transition-transform duration-300 ring-1 ring-white/10 shadow-[0_0_50px_rgba(0,0,0,0.8)]" id="editor-card">
+            <div class="bg-black/60 px-6 py-5 flex justify-between items-center border-b border-white/10 shrink-0 backdrop-blur-xl">
+                <div class="flex items-center gap-3 text-sm font-mono text-white bg-white/5 px-4 py-2 rounded-lg">
                     <i class="ph-fill ph-file-code text-primary text-xl"></i>
                     <span id="editor-title">file.txt</span>
                 </div>
-                <div class="flex gap-2">
-                    <button onclick="closeEditor()" class="px-4 py-2 hover:bg-surfaceHover rounded-xl text-xs font-bold text-slate-400">Cancel</button>
-                    <button onclick="saveFile()" class="bg-gradient-btn px-5 py-2 rounded-xl text-xs font-bold text-white shadow-lg flex items-center gap-2">
-                        <i class="ph-bold ph-floppy-disk"></i> Save
+                <div class="flex gap-3">
+                    <button onclick="closeEditor()" class="px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs md:text-sm font-bold text-slate-300 transition-colors">Close</button>
+                    <button onclick="saveFile()" class="bg-gradient-btn px-6 py-2.5 rounded-xl text-xs md:text-sm font-bold text-white shadow-neon flex items-center gap-2">
+                        <i class="ph-bold ph-floppy-disk text-lg"></i> Save Changes
                     </button>
                 </div>
             </div>
-            <textarea id="editor-content" class="flex-grow bg-[#080B11] text-slate-200 p-5 font-mono text-sm resize-none focus:outline-none w-full leading-loose" spellcheck="false"></textarea>
+            <textarea id="editor-content" class="flex-grow bg-[#06080D]/80 text-slate-200 p-6 font-mono text-sm md:text-base resize-none focus:outline-none w-full leading-relaxed" spellcheck="false"></textarea>
         </div>
     </div>
 
-    <!-- Notification Toasts -->
-    <div id="toast-container" class="fixed top-6 right-6 z-[200] flex flex-col gap-3 pointer-events-none"></div>
+    <div id="toast-container" class="fixed top-6 right-6 md:top-8 md:right-8 z-[200] flex flex-col gap-4 pointer-events-none"></div>
 
     <script>
         // --- Tab Navigation ---
         function switchTab(tab) {
-            document.getElementById('tab-dashboard').classList.add('hidden-tab');
+            document.getElementById('tab-console').classList.add('hidden-tab');
             document.getElementById('tab-files').classList.add('hidden-tab');
             
             // Reset Desktop
-            document.getElementById('nav-dashboard').className = "nav-item flex items-center gap-3 px-4 py-3 rounded-xl font-medium";
-            document.getElementById('nav-files').className = "nav-item flex items-center gap-3 px-4 py-3 rounded-xl font-medium";
+            document.getElementById('nav-console').className = "nav-item flex items-center gap-4 px-4 py-3.5 rounded-r-xl font-medium border-l-3 border-transparent";
+            document.getElementById('nav-files').className = "nav-item flex items-center gap-4 px-4 py-3.5 rounded-r-xl font-medium border-l-3 border-transparent";
             
             // Reset Mobile
-            document.getElementById('mob-dashboard').classList.remove('active');
+            document.getElementById('mob-console').classList.remove('active');
             document.getElementById('mob-files').classList.remove('active');
             
             // Activate
             document.getElementById('tab-' + tab).classList.remove('hidden-tab');
             document.getElementById('tab-' + tab).classList.add('fade-in');
             
-            document.getElementById('nav-' + tab).className = "nav-item active flex items-center gap-3 px-4 py-3 rounded-xl font-medium";
+            document.getElementById('nav-' + tab).className = "nav-item active flex items-center gap-4 px-4 py-3.5 rounded-r-xl font-medium";
             document.getElementById('mob-' + tab).classList.add('active');
 
-            if(tab === 'dashboard' && fitAddon) setTimeout(() => fitAddon.fit(), 100);
+            if(tab === 'console' && fitAddon) setTimeout(() => fitAddon.fit(), 100);
             if(tab === 'files' && !window.filesLoaded) { loadFiles(''); window.filesLoaded = true; }
         }
 
         // --- Terminal Engine ---
         const term = new Terminal({ 
-            theme: { background: 'transparent', foreground: '#E2E8F0', cursor: '#6366F1', selectionBackground: 'rgba(99, 102, 241, 0.3)' }, 
-            fontFamily: "'JetBrains Mono', monospace", fontSize: 13, cursorBlink: true, convertEol: true 
+            theme: { background: 'transparent', foreground: '#E2E8F0', cursor: '#8B5CF6', selectionBackground: 'rgba(139, 92, 246, 0.3)' }, 
+            fontFamily: "'JetBrains Mono', monospace", fontSize: window.innerWidth < 768 ? 12 : 14, cursorBlink: true, convertEol: true 
         });
         const fitAddon = new FitAddon.FitAddon();
         term.loadAddon(fitAddon);
         term.open(document.getElementById('terminal'));
         
-        // Exact fit tracking to fix wrapping
         const ro = new ResizeObserver(() => {
-            if(!document.getElementById('tab-dashboard').classList.contains('hidden-tab')) {
+            if(!document.getElementById('tab-console').classList.contains('hidden-tab')) {
                 requestAnimationFrame(() => fitAddon.fit());
             }
         });
@@ -377,43 +335,17 @@ HTML_CONTENT = """
         setTimeout(() => fitAddon.fit(), 200);
 
         const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
-        ws.onopen = () => term.write('\\x1b[38;5;63m\\x1b[1m[Console]\\x1b[0m Engine connection established.\\r\\n');
+        ws.onopen = () => term.write('\\x1b[38;5;135m\\x1b[1m[System]\\x1b[0m Secure engine connection established.\\r\\n');
         ws.onmessage = e => term.write(e.data + '\\n');
         
         const cmdInput = document.getElementById('cmd-input');
         cmdInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendCommand(); });
         function sendCommand() {
             if(cmdInput.value.trim() && ws.readyState === WebSocket.OPEN) { 
-                term.write(`\\x1b[90m> ${cmdInput.value}\\x1b[0m\\r\\n`);
+                term.write(`\\x1b[38;5;51m> ${cmdInput.value}\\x1b[0m\\r\\n`);
                 ws.send(cmdInput.value); cmdInput.value = ''; 
             }
         }
-
-        // --- Container Metrics Engine ---
-        async function fetchStats() {
-            try {
-                const res = await fetch('/api/stats');
-                const data = await res.json();
-                
-                // RAM (Max 16GB)
-                const ramVal = Math.min(data.ram_used, 16.0);
-                document.getElementById('ram-val').innerText = ramVal.toFixed(1);
-                document.getElementById('ram-bar').style.width = `${(ramVal / 16.0) * 100}%`;
-                
-                // CPU (Max 100% representing 2 cores)
-                const cpuVal = Math.min(data.cpu, 100);
-                document.getElementById('cpu-val').innerText = Math.round(cpuVal);
-                document.getElementById('cpu-bar').style.width = `${cpuVal}%`;
-                
-                // Storage (Max 50GB)
-                const diskVal = Math.min(data.storage_used, 50.0);
-                document.getElementById('disk-val').innerText = diskVal.toFixed(1);
-                document.getElementById('disk-bar').style.width = `${(diskVal / 50.0) * 100}%`;
-                
-            } catch (e) {}
-        }
-        setInterval(fetchStats, 2000);
-        fetchStats();
 
         // --- File Manager ---
         let currentPath = '';
@@ -422,33 +354,33 @@ HTML_CONTENT = """
         function showToast(msg, type='info') {
             const container = document.getElementById('toast-container');
             const el = document.createElement('div');
-            let icon = '<i class="ph-fill ph-info text-blue-400 text-xl"></i>';
-            if(type==='success') icon = '<i class="ph-fill ph-check-circle text-green-400 text-xl"></i>';
-            if(type==='error') icon = '<i class="ph-fill ph-warning-circle text-red-400 text-xl"></i>';
+            let icon = '<i class="ph-fill ph-info text-accent text-2xl drop-shadow-[0_0_8px_#0EA5E9]"></i>';
+            if(type==='success') icon = '<i class="ph-fill ph-check-circle text-green-400 text-2xl drop-shadow-[0_0_8px_#22C55E]"></i>';
+            if(type==='error') icon = '<i class="ph-fill ph-warning-circle text-red-400 text-2xl drop-shadow-[0_0_8px_#EF4444]"></i>';
 
-            el.className = `flex items-center gap-3 bg-surface border border-border text-white px-5 py-4 rounded-xl shadow-2xl translate-x-10 opacity-0 transition-all duration-300`;
-            el.innerHTML = `${icon} <span class="font-bold text-sm tracking-wide">${msg}</span>`;
+            el.className = `flex items-center gap-4 bg-surface/90 backdrop-blur-xl border border-white/10 text-white px-6 py-4 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] translate-x-12 opacity-0 transition-all duration-300`;
+            el.innerHTML = `${icon} <span class="font-medium text-sm tracking-wide">${msg}</span>`;
             container.appendChild(el);
             
-            requestAnimationFrame(() => el.classList.remove('translate-x-10', 'opacity-0'));
-            setTimeout(() => { el.classList.add('translate-x-10', 'opacity-0'); setTimeout(() => el.remove(), 300); }, 3000);
+            requestAnimationFrame(() => el.classList.remove('translate-x-12', 'opacity-0'));
+            setTimeout(() => { el.classList.add('translate-x-12', 'opacity-0'); setTimeout(() => el.remove(), 300); }, 3500);
         }
 
         async function loadFiles(path) {
             currentPath = path;
             const parts = path.split('/').filter(p => p);
-            let bc = `<button onclick="loadFiles('')" class="hover:text-white transition"><i class="ph-fill ph-house text-lg"></i></button>`;
+            let bc = `<button onclick="loadFiles('')" class="hover:text-primary transition"><i class="ph-fill ph-house text-lg"></i></button>`;
             let bp = '';
             parts.forEach((p, i) => {
                 bp += (bp?'/':'') + p;
-                bc += `<i class="ph-bold ph-caret-right text-xs mx-2 opacity-30"></i>`;
-                if(i === parts.length-1) bc += `<span class="text-primary font-bold">${p}</span>`;
-                else bc += `<button onclick="loadFiles('${bp}')" class="hover:text-white transition">${p}</button>`;
+                bc += `<i class="ph-bold ph-caret-right text-xs mx-3 text-slate-600"></i>`;
+                if(i === parts.length-1) bc += `<span class="text-primary font-bold bg-primary/10 px-2 py-0.5 rounded">${p}</span>`;
+                else bc += `<button onclick="loadFiles('${bp}')" class="hover:text-primary transition">${p}</button>`;
             });
             document.getElementById('breadcrumbs').innerHTML = bc;
 
             const list = document.getElementById('file-list');
-            list.innerHTML = `<div class="flex justify-center py-12"><i class="ph-bold ph-spinner-gap animate-spin text-3xl text-primary"></i></div>`;
+            list.innerHTML = `<div class="flex flex-col items-center justify-center py-20 gap-4"><i class="ph-bold ph-circle-notch animate-spin text-4xl text-primary"></i><span class="text-slate-500 font-mono text-sm">Syncing system files...</span></div>`;
 
             try {
                 const res = await fetch(`/api/fs/list?path=${encodeURIComponent(path)}`);
@@ -458,32 +390,32 @@ HTML_CONTENT = """
                 if (path !== '') {
                     const parent = path.split('/').slice(0, -1).join('/');
                     list.innerHTML += `
-                        <div class="flex items-center px-4 py-3 cursor-pointer hover:bg-surfaceHover rounded-xl transition mb-1 border border-transparent" onclick="loadFiles('${parent}')">
-                            <i class="ph-bold ph-arrow-u-up-left text-slate-500 mr-3 text-lg"></i>
-                            <span class="text-sm font-mono text-slate-400 font-semibold">.. back</span>
+                        <div class="flex items-center px-5 py-4 cursor-pointer hover:bg-white/5 rounded-2xl transition-all mb-2 border border-transparent" onclick="loadFiles('${parent}')">
+                            <div class="p-2 bg-white/5 rounded-lg mr-4"><i class="ph-bold ph-arrow-u-up-left text-slate-400 text-lg"></i></div>
+                            <span class="text-sm font-mono text-slate-300 font-semibold tracking-wide">.. / Return</span>
                         </div>`;
                 }
 
                 files.forEach(f => {
-                    const icon = f.is_dir ? '<div class="p-2.5 bg-primary/10 rounded-lg text-primary"><i class="ph-fill ph-folder text-xl"></i></div>' : '<div class="p-2.5 bg-surface border border-border rounded-lg text-slate-400"><i class="ph-fill ph-file text-xl"></i></div>';
-                    const sz = f.is_dir ? '--' : (f.size > 1048576 ? (f.size/1048576).toFixed(1) + ' MB' : (f.size/1024).toFixed(1) + ' KB');
+                    const icon = f.is_dir ? '<div class="p-3 bg-primary/10 border border-primary/20 rounded-xl text-primary shadow-[0_0_15px_rgba(139,92,246,0.15)] group-hover:bg-primary group-hover:text-white transition-all duration-300"><i class="ph-fill ph-folder text-xl"></i></div>' : '<div class="p-3 bg-surface border border-white/5 rounded-xl text-slate-400 group-hover:bg-white/10 group-hover:text-white transition-all duration-300"><i class="ph-fill ph-file-text text-xl"></i></div>';
+                    const sz = f.is_dir ? '<span class="px-2 py-1 bg-white/5 rounded text-[10px] text-slate-500">DIR</span>' : (f.size > 1048576 ? `<span class="px-2 py-1 bg-white/5 rounded text-[10px] text-slate-300">${(f.size/1048576).toFixed(1)} MB</span>` : `<span class="px-2 py-1 bg-white/5 rounded text-[10px] text-slate-400">${(f.size/1024).toFixed(1)} KB</span>`);
                     const fp = path ? `${path}/${f.name}` : f.name;
                     
                     list.innerHTML += `
-                        <div class="flex flex-col sm:grid sm:grid-cols-12 items-start sm:items-center px-3 py-2 gap-3 group hover:bg-surfaceHover rounded-xl transition mb-1 border border-transparent hover:border-border">
-                            <div class="col-span-7 flex items-center gap-4 w-full ${f.is_dir?'cursor-pointer':''}" ${f.is_dir?`onclick="loadFiles('${fp}')"`:''}>
+                        <div class="flex flex-col sm:grid sm:grid-cols-12 items-start sm:items-center px-4 py-3 gap-3 group hover:bg-white/[0.03] rounded-2xl transition-all duration-300 mb-2 border border-transparent hover:border-white/5 hover:shadow-lg">
+                            <div class="col-span-7 flex items-center gap-5 w-full ${f.is_dir?'cursor-pointer':''}" ${f.is_dir?`onclick="loadFiles('${fp}')"`:''}>
                                 ${icon}
-                                <span class="text-sm font-mono text-slate-200 truncate group-hover:text-primary transition font-medium">${f.name}</span>
+                                <span class="text-sm font-mono text-slate-200 truncate group-hover:text-white transition font-medium tracking-wide">${f.name}</span>
                             </div>
-                            <div class="col-span-3 text-right text-xs text-slate-500 font-mono hidden sm:block">${sz}</div>
-                            <div class="col-span-2 flex justify-end gap-2 w-full sm:w-auto sm:opacity-0 group-hover:opacity-100 transition">
-                                ${!f.is_dir ? `<button onclick="editFile('${fp}')" class="p-2 bg-surface border border-border hover:border-primary hover:text-primary rounded-lg transition"><i class="ph-bold ph-pencil-simple text-sm"></i></button>` : ''}
-                                ${!f.is_dir ? `<a href="/api/fs/download?path=${encodeURIComponent(fp)}" class="p-2 bg-surface border border-border hover:border-green-400 hover:text-green-400 rounded-lg transition"><i class="ph-bold ph-download-simple text-sm"></i></a>` : ''}
-                                <button onclick="deleteFile('${fp}')" class="p-2 bg-surface border border-border hover:border-red-400 hover:text-red-400 rounded-lg transition"><i class="ph-bold ph-trash text-sm"></i></button>
+                            <div class="col-span-3 text-right font-mono hidden sm:block">${sz}</div>
+                            <div class="col-span-2 flex justify-end gap-2 w-full sm:w-auto sm:opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                                ${!f.is_dir ? `<button onclick="editFile('${fp}')" class="p-2.5 bg-surface border border-white/5 hover:border-primary hover:text-primary hover:shadow-[0_0_10px_rgba(139,92,246,0.2)] rounded-xl transition-all"><i class="ph-bold ph-pencil-simple text-base"></i></button>` : ''}
+                                ${!f.is_dir ? `<a href="/api/fs/download?path=${encodeURIComponent(fp)}" class="p-2.5 bg-surface border border-white/5 hover:border-accent hover:text-accent hover:shadow-[0_0_10px_rgba(14,165,233,0.2)] rounded-xl transition-all"><i class="ph-bold ph-download-simple text-base"></i></a>` : ''}
+                                <button onclick="deleteFile('${fp}')" class="p-2.5 bg-surface border border-white/5 hover:border-secondary hover:text-secondary hover:shadow-[0_0_10px_rgba(217,70,239,0.2)] rounded-xl transition-all"><i class="ph-bold ph-trash text-base"></i></button>
                             </div>
                         </div>`;
                 });
-            } catch (err) { list.innerHTML = `<div class="text-center py-8 text-red-400 text-sm">Failed to load files</div>`; }
+            } catch (err) { list.innerHTML = `<div class="text-center py-10 text-red-400 text-sm font-mono bg-red-500/10 border border-red-500/20 rounded-2xl mx-4">System fault: Unable to access directory mapping.</div>`; }
         }
 
         async function editFile(path) {
@@ -496,8 +428,8 @@ HTML_CONTENT = """
                     const m = document.getElementById('editor-modal'); const c = document.getElementById('editor-card');
                     m.classList.remove('hidden'); m.classList.add('flex');
                     requestAnimationFrame(() => { m.classList.remove('opacity-0'); c.classList.remove('scale-95'); });
-                } else showToast('Binary file cannot be edited', 'error');
-            } catch { showToast('Error opening file', 'error'); }
+                } else showToast('Binary file cannot be parsed', 'error');
+            } catch { showToast('Error accessing data block', 'error'); }
         }
 
         function closeEditor() {
@@ -510,79 +442,34 @@ HTML_CONTENT = """
             const fd = new FormData(); fd.append('path', editPath); fd.append('content', document.getElementById('editor-content').value);
             try {
                 const res = await fetch('/api/fs/write', { method: 'POST', body: fd });
-                if(res.ok) { showToast('Saved securely', 'success'); closeEditor(); } else throw new Error();
-            } catch { showToast('Save failed', 'error'); }
+                if(res.ok) { showToast('Block verified and saved', 'success'); closeEditor(); } else throw new Error();
+            } catch { showToast('Write operation failed', 'error'); }
         }
 
         async function deleteFile(path) {
-            if(confirm(`Erase ${path.split('/').pop()} permanentely?`)) {
+            if(confirm(`WARNING: Erase ${path.split('/').pop()} from the filesystem? This cannot be undone.`)) {
                 const fd = new FormData(); fd.append('path', path);
                 try {
                     const res = await fetch('/api/fs/delete', { method: 'POST', body: fd });
-                    if(res.ok) { showToast('Erased', 'success'); loadFiles(currentPath); } else throw new Error();
-                } catch { showToast('Erase failed', 'error'); }
+                    if(res.ok) { showToast('Data block purged', 'success'); loadFiles(currentPath); } else throw new Error();
+                } catch { showToast('Purge operation failed', 'error'); }
             }
         }
 
         async function uploadFile(e) {
             if(!e.target.files.length) return;
-            showToast('Uploading data...', 'info');
+            showToast('Injecting payload...', 'info');
             const fd = new FormData(); fd.append('path', currentPath); fd.append('file', e.target.files[0]);
             try {
                 const res = await fetch('/api/fs/upload', { method: 'POST', body: fd });
-                if(res.ok) { showToast('Upload complete', 'success'); loadFiles(currentPath); } else throw new Error();
-            } catch { showToast('Upload failed', 'error'); }
+                if(res.ok) { showToast('Payload injected successfully', 'success'); loadFiles(currentPath); } else throw new Error();
+            } catch { showToast('Injection failed', 'error'); }
             e.target.value = '';
         }
     </script>
 </body>
 </html>
 """
-
-# -----------------
-# STATS ENGINE BACKGROUND TASK (Container-Only Restrictions)
-# -----------------
-async def update_system_stats():
-    """ Runs constantly in the background so the UI endpoint is instantly responsive. """
-    while True:
-        try:
-            # 1. Gather Storage strictly for /app
-            # Hugging Face usually provides around 50GB. We enforce this visual cap.
-            total_st, used_st, free_st = shutil.disk_usage('/app')
-            cached_stats["storage_used"] = used_st / (1024**3)
-            cached_stats["storage_total"] = 50.0
-
-            # 2. Gather RAM and CPU strictly for the python process + Java child (No Host Info)
-            ram_used = 0
-            cpu_percent_raw = 0.0
-            
-            try:
-                main_proc = psutil.Process(os.getpid())
-                ram_used += main_proc.memory_info().rss
-                cpu_percent_raw += main_proc.cpu_percent()
-                
-                # Fetch Java child process metrics
-                for child in main_proc.children(recursive=True):
-                    try:
-                        ram_used += child.memory_info().rss
-                        cpu_percent_raw += child.cpu_percent()
-                    except psutil.NoSuchProcess:
-                        pass
-            except Exception:
-                pass
-
-            # Convert RAM to GB
-            cached_stats["ram_used"] = ram_used / (1024**3)
-            cached_stats["ram_total"] = 16.0 # Strict Hugging Face Limit
-            
-            # Normalize CPU to 2 vCores (where 200% raw = 100% full capacity)
-            normalized_cpu = cpu_percent_raw / 2.0
-            cached_stats["cpu"] = min(100.0, normalized_cpu)
-
-        except Exception as e:
-            pass # Failsafe
-            
-        await asyncio.sleep(2) # Update every 2 seconds
 
 # -----------------
 # UTILITIES & SERVER
@@ -636,18 +523,12 @@ async def start_minecraft():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(start_minecraft())
-    asyncio.create_task(update_system_stats()) # Start background polling loop
 
 # -----------------
 # API ROUTING
 # -----------------
 @app.get("/")
 def get_panel(): return HTMLResponse(content=HTML_CONTENT)
-
-@app.get("/api/stats")
-def api_stats():
-    # Returns the background-calculated stats instantly
-    return JSONResponse(content=cached_stats)
 
 @app.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket):
