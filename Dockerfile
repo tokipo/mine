@@ -14,8 +14,8 @@ RUN wget -O- https://apt.corretto.aws/corretto.key | gpg --dearmor > /usr/share/
     apt-get install -y java-21-amazon-corretto-jdk && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Python packages
-RUN pip3 install --no-cache-dir --break-system-packages gdown
+# Install Python packages for the Web UI Panel
+RUN pip3 install --no-cache-dir --break-system-packages gdown fastapi uvicorn websockets python-multipart aiofiles
 
 # Set working directory
 WORKDIR /app
@@ -27,7 +27,7 @@ COPY . /app
 RUN chmod -R 777 /app && \
     chmod +x /app/start.sh
 
-# Expose Minecraft port
+# Expose Web UI port (Hugging Face standard)
 EXPOSE 7860
 
 # Set default command
