@@ -13,462 +13,429 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 mc_process = None
 output_history = collections.deque(maxlen=300)
 connected_clients = set()
-# Automatically adapts to Hugging Face Docker environments (/app, /home/user/app, etc.)
-BASE_DIR = os.path.abspath(os.getcwd())
+BASE_DIR = os.path.abspath("/app")
 
 # -----------------
 # HTML FRONTEND (Ultra-Modern UI)
 # -----------------
-HTML_CONTENT = """<!DOCTYPE html>
-<html lang="en">
+HTML_CONTENT = """
+<!DOCTYPE html>
+<html lang="en" class="dark">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OrbitMC</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Geist:wght@300;400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#0a0a0a;--s1:#111;--s2:#181818;--s3:#222;
-  --b1:#2a2a2a;--b2:#333;
-  --t1:#f0f0f0;--t2:#999;--t3:#555;
-  --accent:#4ade80;--accent2:#22c55e;
-  --red:#f87171;--blue:#60a5fa;--yellow:#fbbf24;
-  --r:8px;--font:'Geist',sans-serif;--mono:'JetBrains Mono',monospace;
-  --trans:all .15s ease;
-}
-body{background:var(--bg);color:var(--t1);font-family:var(--font);font-size:14px;display:flex;height:100vh;overflow:hidden}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Server Console</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root { --bg: #09090b; --surface: #18181b; --surface-hover: #27272a; --border: #27272a; --text: #fafafa; --text-muted: #a1a1aa; --accent: #3b82f6; }
+        body { background-color: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; overflow: hidden; -webkit-font-smoothing: antialiased; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        
+        /* Glass Navbar */
+        .glass-nav { background: rgba(9, 9, 11, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); z-index: 40; }
+        
+        /* Animations */
+        .fade-in { animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Terminal Styling with Top Fade */
+        .term-container { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; position: relative; }
+        .term-wrapper { padding: 12px; height: calc(100vh - 180px); width: 100%; mask-image: linear-gradient(to bottom, transparent 0%, black 5%, black 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 5%, black 100%); }
+        .xterm-viewport::-webkit-scrollbar { width: 8px; }
+        .xterm-viewport::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+        
+        /* File Manager Layout */
+        .file-row { transition: all 0.15s ease; border-bottom: 1px solid var(--border); }
+        .file-row:hover { background: var(--surface-hover); }
+        .file-row:last-child { border-bottom: none; }
+        
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #52525b; }
 
-/* SIDEBAR */
-.sidebar{width:56px;background:var(--s1);border-right:1px solid var(--b1);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:4px;z-index:10;flex-shrink:0}
-.nav-btn{width:40px;height:40px;border:none;background:transparent;color:var(--t3);border-radius:var(--r);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:var(--trans);position:relative}
-.nav-btn:hover{background:var(--s3);color:var(--t2)}
-.nav-btn.active{background:rgba(74,222,128,.12);color:var(--accent)}
-.nav-btn .tooltip{position:absolute;left:52px;background:#1a1a1a;border:1px solid var(--b1);color:var(--t1);padding:4px 10px;border-radius:6px;font-size:12px;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;z-index:100}
-.nav-btn:hover .tooltip{opacity:1}
-
-/* MAIN */
-.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.panel{display:none;flex:1;overflow:hidden}
-.panel.active{display:flex;flex-direction:column}
-
-/* CONSOLE */
-.console-wrap{flex:1;position:relative;overflow:hidden;background:var(--s1)}
-.console-blur{position:absolute;top:0;left:0;right:0;height:60px;background:linear-gradient(to bottom,var(--s1) 0%,transparent 100%);z-index:2;pointer-events:none}
-.console-out{position:absolute;inset:0;overflow-y:auto;padding:16px;font-family:var(--mono);font-size:12.5px;line-height:1.7;scrollbar-width:thin;scrollbar-color:var(--b2) transparent}
-.console-out::-webkit-scrollbar{width:4px}
-.console-out::-webkit-scrollbar-thumb{background:var(--b2);border-radius:2px}
-.log-line{animation:fadeUp .25s ease forwards;opacity:0;word-break:break-all}
-@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-.log-line.info{color:#94a3b8}.log-line.warn{color:var(--yellow)}.log-line.error{color:var(--red)}.log-line.ok{color:var(--accent)}
-.console-input-bar{padding:12px 16px 20px;background:var(--s1);border-top:1px solid var(--b1);display:flex;gap:8px;align-items:center}
-.console-input-bar .prompt{color:var(--accent);font-family:var(--mono);font-size:13px;flex-shrink:0}
-.console-input-bar input{flex:1;background:var(--s2);border:1px solid var(--b1);color:var(--t1);font-family:var(--mono);font-size:13px;padding:8px 12px;border-radius:var(--r);outline:none;transition:var(--trans)}
-.console-input-bar input:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(74,222,128,.1)}
-.send-btn{background:var(--accent);color:#000;border:none;padding:8px 16px;border-radius:var(--r);font-family:var(--font);font-weight:600;font-size:13px;cursor:pointer;transition:var(--trans);flex-shrink:0}
-.send-btn:hover{background:var(--accent2)}
-
-/* FILE MANAGER */
-.fm-wrap{display:flex;flex-direction:column;flex:1;overflow:hidden}
-.fm-toolbar{padding:12px 16px;background:var(--s1);border-bottom:1px solid var(--b1);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.fm-breadcrumb{flex:1;display:flex;align-items:center;gap:4px;font-size:13px;color:var(--t2);overflow:hidden;min-width:0}
-.fm-breadcrumb span{cursor:pointer;transition:color .15s;white-space:nowrap}
-.fm-breadcrumb span:hover{color:var(--accent)}
-.fm-breadcrumb .sep{color:var(--t3)}
-.tb-btn{height:32px;padding:0 12px;background:var(--s2);border:1px solid var(--b1);color:var(--t2);border-radius:6px;cursor:pointer;font-size:12px;font-family:var(--font);display:flex;align-items:center;gap:6px;transition:var(--trans);white-space:nowrap}
-.tb-btn:hover{background:var(--s3);color:var(--t1)}
-.tb-btn.danger:hover{border-color:var(--red);color:var(--red)}
-.fm-list{flex:1;overflow-y:auto;padding:8px;scrollbar-width:thin;scrollbar-color:var(--b2) transparent}
-.fm-list::-webkit-scrollbar{width:4px}
-.fm-list::-webkit-scrollbar-thumb{background:var(--b2)}
-.fm-empty{display:flex;align-items:center;justify-content:center;height:100%;color:var(--t3);font-size:13px}
-.fm-item{display:flex;align-items:center;padding:9px 12px;border-radius:6px;cursor:pointer;transition:background .1s;gap:10px;user-select:none}
-.fm-item:hover{background:var(--s2)}
-.fm-item.selected{background:rgba(74,222,128,.08);outline:1px solid rgba(74,222,128,.2)}
-.fm-icon{width:20px;text-align:center;font-size:14px;flex-shrink:0}
-.fi-dir{color:var(--blue)}.fi-cfg{color:var(--yellow)}.fi-jar{color:var(--accent)}.fi-log{color:var(--t3)}.fi-other{color:var(--t2)}
-.fm-name{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fm-size{font-size:11px;color:var(--t3);flex-shrink:0}
-.ctx-menu{position:fixed;background:#1a1a1a;border:1px solid var(--b1);border-radius:8px;padding:6px;z-index:1000;min-width:160px;box-shadow:0 8px 32px rgba(0,0,0,.6);animation:ctxIn .12s ease}
-@keyframes ctxIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:none}}
-.ctx-item{padding:7px 12px;border-radius:5px;cursor:pointer;font-size:13px;color:var(--t2);display:flex;align-items:center;gap:8px;transition:var(--trans)}
-.ctx-item:hover{background:var(--s3);color:var(--t1)}
-.ctx-item.danger{color:var(--red)}.ctx-item.danger:hover{background:rgba(248,113,113,.1)}
-.ctx-sep{height:1px;background:var(--b1);margin:4px 0}
-
-/* CONFIG */
-.cfg-wrap{flex:1;overflow-y:auto;padding:16px;scrollbar-width:thin;scrollbar-color:var(--b2) transparent}
-.cfg-section{background:var(--s1);border:1px solid var(--b1);border-radius:10px;margin-bottom:16px;overflow:hidden}
-.cfg-section-head{padding:12px 16px;border-bottom:1px solid var(--b1);font-size:12px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.06em}
-.cfg-row{display:flex;align-items:center;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.03);gap:12px}
-.cfg-row:last-child{border-bottom:none}
-.cfg-key{flex:1;font-family:var(--mono);font-size:12.5px;color:var(--t2)}
-.cfg-val{flex:1;background:var(--s2);border:1px solid var(--b1);color:var(--t1);font-family:var(--mono);font-size:12px;padding:5px 10px;border-radius:6px;outline:none;transition:var(--trans)}
-.cfg-val:focus{border-color:var(--accent)}
-.cfg-save{margin:0 16px 16px;background:var(--accent);color:#000;border:none;padding:9px 20px;border-radius:var(--r);font-weight:600;font-size:13px;cursor:pointer;transition:var(--trans)}
-.cfg-save:hover{background:var(--accent2)}
-.coming-soon{display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;gap:12px;color:var(--t3)}
-.coming-soon i{font-size:36px;opacity:.3}
-
-/* MODALS */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:500;display:flex;align-items:center;justify-content:center;animation:fadeIn .15s ease;backdrop-filter:blur(4px)}
-@keyframes fadeIn{from{opacity:0}to{opacity:1}}
-.modal{background:#161616;border:1px solid var(--b1);border-radius:12px;padding:24px;width:90%;max-width:480px;animation:modalIn .2s ease;box-shadow:0 24px 64px rgba(0,0,0,.6)}
-.modal.wide{max-width:760px}
-@keyframes modalIn{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
-.modal h3{font-size:15px;font-weight:600;margin-bottom:16px;color:var(--t1)}
-.modal input,.modal textarea{width:100%;background:var(--s2);border:1px solid var(--b1);color:var(--t1);font-family:var(--mono);font-size:13px;padding:9px 12px;border-radius:var(--r);outline:none;transition:var(--trans);margin-bottom:12px}
-.modal input:focus,.modal textarea:focus{border-color:var(--accent)}
-.modal textarea{min-height:320px;resize:vertical;line-height:1.6}
-.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
-.btn-ghost{background:transparent;border:1px solid var(--b1);color:var(--t2);padding:7px 16px;border-radius:6px;cursor:pointer;font-family:var(--font);font-size:13px;transition:var(--trans)}
-.btn-ghost:hover{border-color:var(--b2);color:var(--t1)}
-.btn-primary{background:var(--accent);color:#000;border:none;padding:7px 16px;border-radius:6px;font-family:var(--font);font-weight:600;font-size:13px;cursor:pointer;transition:var(--trans)}
-.btn-primary:hover{background:var(--accent2)}
-.btn-danger{background:transparent;border:1px solid var(--red);color:var(--red);padding:7px 16px;border-radius:6px;cursor:pointer;font-family:var(--font);font-size:13px;transition:var(--trans)}
-.btn-danger:hover{background:rgba(248,113,113,.1)}
-.upload-zone{border:2px dashed var(--b2);border-radius:8px;padding:32px;text-align:center;color:var(--t3);cursor:pointer;transition:var(--trans);margin-bottom:12px}
-.upload-zone:hover,.upload-zone.drag{border-color:var(--accent);color:var(--accent);background:rgba(74,222,128,.04)}
-.upload-zone i{font-size:24px;margin-bottom:8px;display:block}
-.upload-zone p{font-size:13px}
-.status-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent);display:inline-block;margin-right:6px;animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-@media(max-width:600px){.sidebar{width:48px}.tb-btn span{display:none}.tb-btn{padding:0 10px}.fm-size{display:none}}
-</style>
+        /* Loader */
+        .loader { animation: spin 1s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        
+        /* Utility */
+        .hidden-tab { display: none !important; }
+        input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    </style>
 </head>
-<body>
-<nav class="sidebar">
-  <button class="nav-btn active" data-tab="console" onclick="switchTab('console',this)"><i class="fa-solid fa-terminal"></i><span class="tooltip">Console</span></button>
-  <button class="nav-btn" data-tab="files" onclick="switchTab('files',this)"><i class="fa-solid fa-folder-open"></i><span class="tooltip">Files</span></button>
-  <button class="nav-btn" data-tab="config" onclick="switchTab('config',this)"><i class="fa-solid fa-sliders"></i><span class="tooltip">Config</span></button>
-  <button class="nav-btn" data-tab="plugins" onclick="switchTab('plugins',this)" style="margin-top:auto"><i class="fa-solid fa-puzzle-piece"></i><span class="tooltip">Plugins</span></button>
-</nav>
+<body class="flex flex-col h-screen w-full">
 
-<div class="main">
-  <!-- CONSOLE -->
-  <div class="panel active" id="tab-console">
-    <div class="console-wrap">
-      <div class="console-blur"></div>
-      <div class="console-out" id="console-out"></div>
+    <!-- Top Navigation -->
+    <nav class="glass-nav w-full px-4 sm:px-6 py-3 flex justify-between items-center fixed top-0 left-0 right-0 h-[60px]">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-500/10 p-2 rounded-lg border border-blue-500/20">
+                <i data-lucide="server" class="w-5 h-5 text-blue-400"></i>
+            </div>
+            <span class="font-semibold tracking-tight text-sm sm:text-base text-gray-100">Minecraft Engine</span>
+            <span class="px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20 text-[10px] font-bold tracking-wide uppercase hidden sm:block">Online</span>
+        </div>
+        
+        <div class="flex gap-1 sm:gap-2 bg-zinc-900 p-1 rounded-lg border border-zinc-800">
+            <button onclick="switchTab('console')" id="btn-console" class="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-zinc-800 text-gray-100 rounded-md text-xs sm:text-sm font-medium transition-all shadow-sm">
+                <i data-lucide="terminal" class="w-4 h-4"></i><span class="hidden sm:inline">Console</span>
+            </button>
+            <button onclick="switchTab('files')" id="btn-files" class="flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 text-zinc-400 hover:text-gray-200 rounded-md text-xs sm:text-sm font-medium transition-all">
+                <i data-lucide="folder-code" class="w-4 h-4"></i><span class="hidden sm:inline">Files</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="mt-[60px] flex-grow p-3 sm:p-4 overflow-hidden relative">
+        
+        <!-- Console Tab -->
+        <div id="tab-console" class="h-full w-full max-w-7xl mx-auto flex flex-col fade-in">
+            <div class="term-container shadow-2xl flex-grow flex flex-col">
+                <div class="bg-zinc-900 border-b border-zinc-800 px-4 py-2 flex items-center gap-2 text-xs text-zinc-400 font-mono">
+                    <div class="flex gap-1.5"><div class="w-2.5 h-2.5 rounded-full bg-red-500/80"></div><div class="w-2.5 h-2.5 rounded-full bg-yellow-500/80"></div><div class="w-2.5 h-2.5 rounded-full bg-green-500/80"></div></div>
+                    <span class="ml-2">server-stdout</span>
+                </div>
+                <div id="terminal" class="term-wrapper"></div>
+            </div>
+            
+            <div class="mt-3 sm:mt-4 relative">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                    <i data-lucide="chevron-right" class="w-5 h-5"></i>
+                </div>
+                <input type="text" id="cmd-input" class="w-full bg-zinc-900 border border-zinc-800 text-gray-200 rounded-lg pl-10 pr-12 py-3 text-sm font-mono transition-all shadow-inner placeholder-zinc-600" placeholder="Execute command...">
+                <button onclick="sendCommand()" class="absolute inset-y-1 right-1 px-3 bg-blue-600 hover:bg-blue-500 text-white rounded-md transition-colors flex items-center justify-center">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- File Manager Tab -->
+        <div id="tab-files" class="hidden-tab h-full w-full max-w-7xl mx-auto flex flex-col bg-[#18181b] rounded-xl border border-zinc-800 shadow-2xl overflow-hidden">
+            <!-- File Header / Breadcrumbs -->
+            <div class="bg-zinc-900/50 px-4 py-3 border-b border-zinc-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div class="flex items-center text-sm font-mono text-zinc-400 overflow-x-auto whitespace-nowrap hide-scrollbar w-full sm:w-auto" id="breadcrumbs">
+                    <!-- Injected via JS -->
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    <input type="file" id="file-upload" class="hidden" onchange="uploadFile(event)">
+                    <button onclick="document.getElementById('file-upload').click()" class="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 px-3 py-1.5 rounded-md text-xs font-medium text-gray-200 transition-colors">
+                        <i data-lucide="upload-cloud" class="w-4 h-4 text-blue-400"></i> Upload
+                    </button>
+                    <button onclick="loadFiles(currentPath)" class="flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 w-8 h-8 rounded-md transition-colors">
+                        <i data-lucide="refresh-cw" class="w-4 h-4 text-zinc-400"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- File List Columns -->
+            <div class="hidden sm:grid grid-cols-12 gap-4 px-5 py-2 border-b border-zinc-800 bg-zinc-900/80 text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                <div class="col-span-7">Name</div>
+                <div class="col-span-3 text-right">Size</div>
+                <div class="col-span-2 text-right">Actions</div>
+            </div>
+
+            <!-- File List -->
+            <div class="flex-grow overflow-y-auto" id="file-list">
+                <!-- Injected via JS -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Code Editor Modal -->
+    <div id="editor-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center p-2 sm:p-6 z-50 opacity-0 transition-opacity duration-300">
+        <div class="bg-[#18181b] rounded-xl border border-zinc-800 w-full max-w-5xl h-[90vh] sm:h-[85vh] flex flex-col shadow-2xl transform scale-95 transition-transform duration-300" id="editor-card">
+            <div class="bg-zinc-900 px-4 py-3 flex justify-between items-center border-b border-zinc-800 rounded-t-xl">
+                <div class="flex items-center gap-2 text-sm font-mono text-gray-300">
+                    <i data-lucide="file-code" class="w-4 h-4 text-blue-400"></i>
+                    <span id="editor-title">filename.txt</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="closeEditor()" class="px-3 py-1.5 hover:bg-zinc-800 rounded text-xs font-medium text-zinc-400 transition-colors">Cancel</button>
+                    <button onclick="saveFile()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-lg shadow-blue-500/20">
+                        <i data-lucide="save" class="w-3.5 h-3.5"></i> Save
+                    </button>
+                </div>
+            </div>
+            <textarea id="editor-content" class="flex-grow bg-[#0e0e11] text-zinc-300 p-4 font-mono text-xs sm:text-sm resize-none focus:outline-none w-full leading-relaxed" spellcheck="false"></textarea>
+        </div>
     </div>
-    <div class="console-input-bar">
-      <span class="prompt">$</span>
-      <input id="cmd-input" type="text" placeholder="Enter command..." autocomplete="off" spellcheck="false" onkeydown="cmdKey(event)">
-      <button class="send-btn" onclick="sendCmd()"><i class="fa-solid fa-paper-plane"></i></button>
-    </div>
-  </div>
 
-  <!-- FILES -->
-  <div class="panel" id="tab-files">
-    <div class="fm-toolbar">
-      <div class="fm-breadcrumb" id="breadcrumb"></div>
-      <button class="tb-btn" onclick="showMkdir()"><i class="fa-solid fa-folder-plus"></i><span>New Folder</span></button>
-      <button class="tb-btn" onclick="showUpload()"><i class="fa-solid fa-upload"></i><span>Upload</span></button>
-    </div>
-    <div class="fm-list" id="fm-list"></div>
-  </div>
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-[100] flex flex-col gap-2"></div>
 
-  <!-- CONFIG -->
-  <div class="panel" id="tab-config">
-    <div class="cfg-wrap" id="cfg-wrap">
-      <div class="fm-empty" style="height:80px"><i class="fa-solid fa-spinner fa-spin"></i>&nbsp;Loading...</div>
-    </div>
-  </div>
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
 
-  <!-- PLUGINS -->
-  <div class="panel" id="tab-plugins">
-    <div class="coming-soon">
-      <i class="fa-solid fa-puzzle-piece"></i>
-      <p style="font-size:15px;font-weight:600;color:var(--t2)">Plugins</p>
-      <p style="font-size:13px">Coming soon</p>
-    </div>
-  </div>
-</div>
+        // --- Toast System ---
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            
+            let icon = '<i data-lucide="info" class="w-4 h-4 text-blue-400"></i>';
+            let border = 'border-blue-500/20';
+            if(type === 'success') { icon = '<i data-lucide="check-circle" class="w-4 h-4 text-green-400"></i>'; border = 'border-green-500/20'; }
+            if(type === 'error') { icon = '<i data-lucide="alert-circle" class="w-4 h-4 text-red-400"></i>'; border = 'border-red-500/20'; }
 
-<!-- MODALS -->
-<div id="overlay" class="overlay" style="display:none" onclick="closeModal(event)">
-  <div class="modal" id="modal" onclick="event.stopPropagation()">
-    <h3 id="modal-title"></h3>
-    <div id="modal-body"></div>
-    <div class="modal-actions" id="modal-actions"></div>
-  </div>
-</div>
+            toast.className = `flex items-center gap-3 bg-zinc-900 border ${border} text-sm text-gray-200 px-4 py-3 rounded-lg shadow-xl translate-y-8 opacity-0 transition-all duration-300`;
+            toast.innerHTML = `${icon} <span>${message}</span>`;
+            
+            container.appendChild(toast);
+            lucide.createIcons();
+            
+            // Animate In
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-8', 'opacity-0');
+            });
 
-<script>
-// WS
-const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
-let ws, cmdHistory=[], histIdx=-1;
-function connectWS(){
-  ws = new WebSocket(`${wsProto}://${location.host}/ws`);
-  ws.onmessage = e => addLog(e.data);
-  ws.onclose = () => setTimeout(connectWS, 2000);
-}
-connectWS();
+            // Animate Out
+            setTimeout(() => {
+                toast.classList.add('translate-y-8', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
 
-function classify(l){
-  if(/\[WARN|WARN\]/i.test(l)) return 'warn';
-  if(/\[ERROR|ERROR\]/i.test(l)||/exception/i.test(l)) return 'error';
-  if(/Done|started|enabled|loaded/i.test(l)) return 'ok';
-  return 'info';
-}
-function addLog(txt){
-  const out = document.getElementById('console-out');
-  const atBottom = out.scrollHeight - out.clientHeight - out.scrollTop < 40;
-  const d = document.createElement('div');
-  d.className = `log-line ${classify(txt)}`;
-  d.textContent = txt;
-  out.appendChild(d);
-  if(out.children.length > 400) out.removeChild(out.firstChild);
-  if(atBottom) out.scrollTop = out.scrollHeight;
-}
-function sendCmd(){
-  const i = document.getElementById('cmd-input');
-  const v = i.value.trim();
-  if(!v || !ws) return;
-  ws.send(v);
-  cmdHistory.unshift(v); histIdx=-1;
-  i.value='';
-}
-function cmdKey(e){
-  if(e.key==='Enter') sendCmd();
-  else if(e.key==='ArrowUp'){histIdx=Math.min(histIdx+1,cmdHistory.length-1);document.getElementById('cmd-input').value=cmdHistory[histIdx]||'';}
-  else if(e.key==='ArrowDown'){histIdx=Math.max(histIdx-1,-1);document.getElementById('cmd-input').value=histIdx>=0?cmdHistory[histIdx]:'';}
-}
+        // --- UI Navigation ---
+        function switchTab(tab) {
+            document.getElementById('tab-console').classList.add('hidden-tab');
+            document.getElementById('tab-files').classList.add('hidden-tab');
+            
+            document.getElementById('btn-console').className = "flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 text-zinc-400 hover:text-gray-200 rounded-md text-xs sm:text-sm font-medium transition-all";
+            document.getElementById('btn-files').className = "flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 text-zinc-400 hover:text-gray-200 rounded-md text-xs sm:text-sm font-medium transition-all";
+            
+            document.getElementById('tab-' + tab).classList.remove('hidden-tab');
+            document.getElementById('tab-' + tab).classList.add('fade-in');
+            
+            const activeBtn = document.getElementById('btn-' + tab);
+            activeBtn.className = "flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 bg-zinc-800 text-gray-100 rounded-md text-xs sm:text-sm font-medium transition-all shadow-sm";
 
-// TABS
-function switchTab(id,btn){
-  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('tab-'+id).classList.add('active');
-  btn.classList.add('active');
-  if(id==='files') loadDir(currentPath);
-  if(id==='config') loadConfig();
-}
+            if(tab === 'console' && fitAddon) { setTimeout(() => fitAddon.fit(), 50); }
+            if(tab === 'files' && !currentPathLoaded) { loadFiles(''); currentPathLoaded = true; }
+        }
 
-// FILE MANAGER
-let currentPath='', selectedItem=null;
-const api = p => fetch(p).then(r=>r.json());
-const apiPost = (p,fd) => fetch(p,{method:'POST',body:fd});
+        // --- Terminal Logic ---
+        const term = new Terminal({ 
+            theme: { background: 'transparent', foreground: '#e4e4e7', cursor: '#3b82f6', selectionBackground: 'rgba(59, 130, 246, 0.3)' }, 
+            convertEol: true, cursorBlink: true, fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 400
+        });
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(document.getElementById('terminal'));
+        
+        // Wait slightly for DOM to render to fit exactly
+        setTimeout(() => fitAddon.fit(), 100);
+        window.addEventListener('resize', () => { if(!document.getElementById('tab-console').classList.contains('hidden-tab')) fitAddon.fit(); });
 
-async function loadDir(path=''){
-  currentPath = path;
-  renderBreadcrumb(path);
-  const list = document.getElementById('fm-list');
-  list.innerHTML = '<div class="fm-empty"><i class="fa-solid fa-spinner fa-spin"></i>&nbsp;Loading...</div>';
-  const items = await api(`/api/fs/list?path=${encodeURIComponent(path)}`);
-  list.innerHTML = '';
-  if(!items.length){list.innerHTML='<div class="fm-empty">Empty folder</div>';return;}
-  items.forEach(item => {
-    const el = document.createElement('div');
-    el.className = 'fm-item';
-    const icon = getIcon(item);
-    el.innerHTML = `<i class="fm-icon ${icon.cls} ${icon.ic}"></i><span class="fm-name">${item.name}</span><span class="fm-size">${item.is_dir?'—':fmtSize(item.size)}</span>`;
-    el.addEventListener('click',()=>selectItem(item,el));
-    el.addEventListener('dblclick',()=>openItem(item));
-    el.addEventListener('contextmenu',e=>{e.preventDefault();selectItem(item,el);showCtx(e,item);});
-    list.appendChild(el);
-  });
-}
-function selectItem(item,el){
-  document.querySelectorAll('.fm-item').forEach(e=>e.classList.remove('selected'));
-  el.classList.add('selected'); selectedItem=item;
-}
-function getIcon(item){
-  if(item.is_dir) return {cls:'fi-dir',ic:'fa-solid fa-folder'};
-  const ext = item.name.split('.').pop().toLowerCase();
-  if(['yml','yaml','json','toml','cfg','conf'].includes(ext)) return {cls:'fi-cfg',ic:'fa-solid fa-file-code'};
-  if(ext==='jar') return {cls:'fi-jar',ic:'fa-solid fa-cube'};
-  if(ext==='log') return {cls:'fi-log',ic:'fa-solid fa-file-lines'};
-  if(['txt','md'].includes(ext)) return {cls:'fi-other',ic:'fa-solid fa-file-alt'};
-  return {cls:'fi-other',ic:'fa-solid fa-file'};
-}
-function fmtSize(b){if(b<1024)return b+'B';if(b<1048576)return (b/1024).toFixed(1)+'KB';return (b/1048576).toFixed(1)+'MB';}
-function renderBreadcrumb(path){
-  const bc = document.getElementById('breadcrumb');
-  const parts = path ? path.split('/').filter(Boolean) : [];
-  let html = `<span onclick="loadDir('')"><i class="fa-solid fa-server" style="color:var(--accent)"></i></span>`;
-  let acc = '';
-  parts.forEach(p=>{acc+=(acc?'/':'')+p;const cp=acc;html+=`<span class="sep">/</span><span onclick="loadDir('${cp}')">${p}</span>`;});
-  bc.innerHTML = html;
-}
-function openItem(item){
-  const fp = (currentPath ? currentPath+'/' : '') + item.name;
-  if(item.is_dir){loadDir(fp);return;}
-  const ext = item.name.split('.').pop().toLowerCase();
-  const editable = ['yml','yaml','json','toml','cfg','conf','txt','md','properties','log','sh','py','js'].includes(ext);
-  if(editable) openEditor(fp,item.name);
-  else downloadFile(fp,item.name);
-}
-function fullPath(name){return (currentPath ? currentPath+'/' : '') + name;}
+        const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+        let ws;
+        
+        function connectWS() {
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => term.write('\\x1b[32m\\x1b[1m[Panel]\\x1b[0m Connected to server stream.\\r\\n');
+            ws.onmessage = e => term.write(e.data + '\\n');
+            ws.onclose = () => { term.write('\\r\\n\\x1b[31m\\x1b[1m[Panel]\\x1b[0m Connection lost. Reconnecting in 3s...\\r\\n'); setTimeout(connectWS, 3000); };
+        }
+        connectWS();
+        
+        const cmdInput = document.getElementById('cmd-input');
+        cmdInput.addEventListener('keypress', e => { if (e.key === 'Enter') sendCommand(); });
 
-async function openEditor(fp,name){
-  const res = await fetch(`/api/fs/read?path=${encodeURIComponent(fp)}`);
-  if(!res.ok){toast('Cannot read binary file');return;}
-  const text = await res.text();
-  openModal('Edit — '+name,'wide');
-  M.body.innerHTML = `<textarea id="editor-ta" spellcheck="false">${escHtml(text)}</textarea>`;
-  M.actions.innerHTML = `<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="saveFile('${fp}')">Save</button>`;
-}
-async function saveFile(fp){
-  const content = document.getElementById('editor-ta').value;
-  const fd = new FormData(); fd.append('path',fp); fd.append('content',content);
-  await apiPost('/api/fs/write',fd);
-  toast('Saved'); closeModal();
-}
-function downloadFile(fp,name){window.location='/api/fs/download?path='+encodeURIComponent(fp);}
+        function sendCommand() {
+            const val = cmdInput.value.trim();
+            if(val && ws && ws.readyState === WebSocket.OPEN) { 
+                term.write(`\\x1b[90m> ${val}\\x1b[0m\\r\\n`);
+                ws.send(val); 
+                cmdInput.value = ''; 
+            }
+        }
 
-function showCtx(e,item){
-  document.querySelectorAll('.ctx-menu').forEach(c=>c.remove());
-  const fp = fullPath(item.name);
-  const m = document.createElement('div'); m.className='ctx-menu';
-  const items = [
-    {icon:'fa-solid fa-pen',label:'Rename',fn:()=>showRename(fp,item.name)},
-    ...(item.is_dir?[]:[{icon:'fa-solid fa-edit',label:'Edit',fn:()=>openEditor(fp,item.name)},{icon:'fa-solid fa-download',label:'Download',fn:()=>downloadFile(fp,item.name)}]),
-    {sep:true},
-    {icon:'fa-solid fa-trash',label:'Delete',fn:()=>showDelete(fp,item.name),danger:true},
-  ];
-  items.forEach(it=>{
-    if(it.sep){const s=document.createElement('div');s.className='ctx-sep';m.appendChild(s);return;}
-    const d=document.createElement('div');d.className='ctx-item'+(it.danger?' danger':'');
-    d.innerHTML=`<i class="${it.icon}"></i>${it.label}`;
-    d.onclick=()=>{m.remove();it.fn();};
-    m.appendChild(d);
-  });
-  m.style.top = Math.min(e.clientY,window.innerHeight-m.offsetHeight-10)+'px';
-  m.style.left = Math.min(e.clientX,window.innerWidth-180)+'px';
-  document.body.appendChild(m);
-  setTimeout(()=>document.addEventListener('click',()=>m.remove(),{once:true}),10);
-}
+        // --- File Manager Logic ---
+        let currentPath = '';
+        let currentPathLoaded = false;
+        let editingFilePath = '';
 
-function showRename(fp,name){
-  openModal('Rename');
-  M.body.innerHTML=`<input id="rename-in" value="${name}" autocomplete="off">`;
-  M.actions.innerHTML=`<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="doRename('${fp}')">Rename</button>`;
-  setTimeout(()=>{const i=document.getElementById('rename-in');i.focus();i.select();},50);
-}
-async function doRename(fp){
-  const nv = document.getElementById('rename-in').value.trim();
-  if(!nv) return;
-  const fd=new FormData();fd.append('path',fp);fd.append('new_name',nv);
-  await apiPost('/api/fs/rename',fd);
-  closeModal(); loadDir(currentPath);
-}
-function showDelete(fp,name){
-  openModal('Delete');
-  M.body.innerHTML=`<p style="color:var(--t2);font-size:13px;margin-bottom:16px">Delete <strong style="color:var(--t1)">${name}</strong>? This cannot be undone.</p>`;
-  M.actions.innerHTML=`<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-danger" onclick="doDelete('${fp}')">Delete</button>`;
-}
-async function doDelete(fp){
-  const fd=new FormData();fd.append('path',fp);
-  await apiPost('/api/fs/delete',fd);
-  closeModal(); loadDir(currentPath);
-}
-function showMkdir(){
-  openModal('New Folder');
-  M.body.innerHTML=`<input id="mkdir-in" placeholder="Folder name" autocomplete="off">`;
-  M.actions.innerHTML=`<button class="btn-ghost" onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="doMkdir()">Create</button>`;
-  setTimeout(()=>document.getElementById('mkdir-in').focus(),50);
-}
-async function doMkdir(){
-  const n=document.getElementById('mkdir-in').value.trim();if(!n)return;
-  const fd=new FormData();fd.append('path',(currentPath?currentPath+'/':'')+n);
-  await apiPost('/api/fs/mkdir',fd);
-  closeModal(); loadDir(currentPath);
-}
-function showUpload(){
-  openModal('Upload Files');
-  M.body.innerHTML=`<div class="upload-zone" id="drop-zone" onclick="document.getElementById('file-in').click()">
-    <i class="fa-solid fa-cloud-arrow-up"></i><p>Click or drag & drop files</p></div>
-    <input type="file" id="file-in" multiple style="display:none" onchange="handleUpload(this.files)">
-    <div id="upload-prog"></div>`;
-  M.actions.innerHTML=`<button class="btn-ghost" onclick="closeModal()">Close</button>`;
-  const dz=document.getElementById('drop-zone');
-  dz.ondragover=e=>{e.preventDefault();dz.classList.add('drag')};
-  dz.ondragleave=()=>dz.classList.remove('drag');
-  dz.ondrop=e=>{e.preventDefault();dz.classList.remove('drag');handleUpload(e.dataTransfer.files);};
-}
-async function handleUpload(files){
-  const prog=document.getElementById('upload-prog');
-  for(const file of files){
-    prog.innerHTML=`<p style="font-size:12px;color:var(--t2);margin-bottom:4px">Uploading ${file.name}...</p>`;
-    const fd=new FormData();fd.append('path',currentPath);fd.append('file',file);
-    await apiPost('/api/fs/upload',fd);
-  }
-  prog.innerHTML=`<p style="font-size:12px;color:var(--accent)">Done!</p>`;
-  loadDir(currentPath);
-}
+        function renderBreadcrumbs(path) {
+            const parts = path.split('/').filter(p => p);
+            let html = `<button onclick="loadFiles('')" class="hover:text-gray-200 transition-colors"><i data-lucide="home" class="w-4 h-4"></i></button>`;
+            let buildPath = '';
+            
+            if (parts.length > 0) {
+                parts.forEach((part, index) => {
+                    buildPath += (buildPath ? '/' : '') + part;
+                    html += ` <i data-lucide="chevron-right" class="w-3.5 h-3.5 mx-1 opacity-50"></i> `;
+                    if(index === parts.length - 1) {
+                        html += `<span class="text-blue-400 font-medium">${part}</span>`;
+                    } else {
+                        html += `<button onclick="loadFiles('${buildPath}')" class="hover:text-gray-200 transition-colors">${part}</button>`;
+                    }
+                });
+            }
+            document.getElementById('breadcrumbs').innerHTML = html;
+            lucide.createIcons();
+        }
 
-// CONFIG
-async function loadConfig(){
-  const wrap = document.getElementById('cfg-wrap');
-  wrap.innerHTML='<div class="fm-empty"><i class="fa-solid fa-spinner fa-spin"></i>&nbsp;Loading...</div>';
-  const res = await fetch('/api/fs/read?path='+encodeURIComponent('server.properties'));
-  if(!res.ok){wrap.innerHTML='<div class="fm-empty" style="flex-direction:column;gap:8px"><i class="fa-solid fa-circle-exclamation" style="color:var(--t3)"></i><p style="font-size:13px;color:var(--t3)">server.properties not found</p></div>';return;}
-  const text = await res.text();
-  const groups = {General:[],World:[],Network:[],Game:[],Performance:[]};
-  const gmap={motd:'General',server_ip:'Network','server-port':'Network','max-players':'General','online-mode':'Network','enable-rcon':'Network','rcon.port':'Network','rcon.password':'Network','level-name':'World','level-seed':'World','gamemode':'Game','difficulty':'Game','hardcore':'Game','pvp':'Game','spawn-monsters':'Game','spawn-animals':'Game','spawn-npcs':'Game','view-distance':'Performance','simulation-distance':'Performance','max-tick-time':'Performance','network-compression-threshold':'Performance'};
-  const lines=text.split('\n').filter(l=>l&&!l.startsWith('#'));
-  const entries=[];
-  lines.forEach(l=>{const eq=l.indexOf('=');if(eq<0)return;const k=l.slice(0,eq).trim(),v=l.slice(eq+1).trim();entries.push({k,v});});
-  const grouped={General:[],World:[],Network:[],Game:[],Performance:[],Other:[]};
-  entries.forEach(e=>{const g=gmap[e.k]||'Other';grouped[g].push(e);});
-  wrap.innerHTML='';
-  Object.entries(grouped).forEach(([g,rows])=>{
-    if(!rows.length) return;
-    const sec=document.createElement('div');sec.className='cfg-section';
-    sec.innerHTML=`<div class="cfg-section-head">${g}</div>`;
-    rows.forEach(({k,v})=>{
-      const r=document.createElement('div');r.className='cfg-row';
-      r.innerHTML=`<span class="cfg-key">${k}</span><input class="cfg-val" data-key="${k}" value="${escHtml(v)}">`;
-      sec.appendChild(r);
-    });
-    wrap.appendChild(sec);
-  });
-  const btn=document.createElement('button');btn.className='cfg-save';btn.textContent='Save Changes';
-  btn.onclick=saveConfig;wrap.appendChild(btn);
-}
-async function saveConfig(){
-  const res=await fetch('/api/fs/read?path=server.properties');
-  let text=await res.text();
-  document.querySelectorAll('.cfg-val').forEach(inp=>{
-    const k=inp.dataset.key,v=inp.value;
-    text=text.replace(new RegExp(`^(${k}\\s*=).*$`,'m'),`$1${v}`);
-  });
-  const fd=new FormData();fd.append('path','server.properties');fd.append('content',text);
-  await apiPost('/api/fs/write',fd);
-  toast('server.properties saved');
-}
+        async function loadFiles(path) {
+            currentPath = path;
+            renderBreadcrumbs(path);
+            const list = document.getElementById('file-list');
+            list.innerHTML = `<div class="flex justify-center py-8"><i data-lucide="loader-2" class="w-6 h-6 text-zinc-500 loader"></i></div>`;
+            lucide.createIcons();
 
-// MODAL
-const M={el:null,body:null,actions:null};
-function openModal(title,cls=''){
-  const ov=document.getElementById('overlay');
-  const mo=document.getElementById('modal');
-  mo.className='modal'+(cls?' '+cls:'');
-  document.getElementById('modal-title').textContent=title;
-  M.body=document.getElementById('modal-body');M.body.innerHTML='';
-  M.actions=document.getElementById('modal-actions');M.actions.innerHTML='';
-  ov.style.display='flex';
-}
-function closeModal(e){
-  if(e&&e.target!==document.getElementById('overlay'))return;
-  document.getElementById('overlay').style.display='none';
-}
-document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('overlay').style.display='none';});
+            try {
+                const res = await fetch(`/api/fs/list?path=${encodeURIComponent(path)}`);
+                if(!res.ok) throw new Error('Failed to load');
+                const files = await res.json();
+                list.innerHTML = '';
+                
+                if (path !== '') {
+                    const parent = path.split('/').slice(0, -1).join('/');
+                    list.innerHTML += `
+                        <div class="file-row flex items-center px-5 py-3 cursor-pointer" onclick="loadFiles('${parent}')">
+                            <div class="flex items-center gap-3 w-full">
+                                <i data-lucide="corner-left-up" class="w-4 h-4 text-zinc-500"></i>
+                                <span class="text-sm font-mono text-zinc-400">..</span>
+                            </div>
+                        </div>`;
+                }
 
-// TOAST
-function toast(msg){
-  const t=document.createElement('div');
-  t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid var(--b1);color:var(--t1);padding:8px 18px;border-radius:8px;font-size:13px;z-index:9999;animation:fadeIn .2s ease;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.5)';
-  t.textContent=msg;document.body.appendChild(t);
-  setTimeout(()=>t.remove(),2200);
-}
-function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+                if(files.length === 0 && path === '') {
+                    list.innerHTML += `<div class="text-center py-8 text-zinc-500 text-sm">Directory is empty</div>`;
+                }
 
-// Init
-loadDir('');
-</script>
+                files.forEach(f => {
+                    const icon = f.is_dir ? '<i data-lucide="folder" class="w-4 h-4 text-blue-400 fill-blue-400/10"></i>' : '<i data-lucide="file" class="w-4 h-4 text-zinc-400"></i>';
+                    const sizeStr = f.is_dir ? '--' : (f.size > 1024*1024 ? (f.size/(1024*1024)).toFixed(1) + ' MB' : (f.size / 1024).toFixed(1) + ' KB');
+                    const fullPath = path ? `${path}/${f.name}` : f.name;
+                    const actionClick = f.is_dir ? `onclick="loadFiles('${fullPath}')"` : '';
+                    const pointer = f.is_dir ? 'cursor-pointer' : '';
+
+                    list.innerHTML += `
+                        <div class="file-row flex flex-col sm:grid sm:grid-cols-12 items-start sm:items-center px-5 py-3 gap-2 sm:gap-4 group">
+                            <div class="col-span-7 flex items-center gap-3 w-full ${pointer}" ${actionClick}>
+                                ${icon}
+                                <span class="text-sm font-mono text-gray-200 truncate group-hover:text-blue-400 transition-colors">${f.name}</span>
+                            </div>
+                            <div class="col-span-3 text-right text-xs text-zinc-500 font-mono hidden sm:block">${sizeStr}</div>
+                            <div class="col-span-2 flex justify-end gap-1 sm:gap-2 w-full sm:w-auto mt-2 sm:mt-0 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                                ${!f.is_dir ? `<button onclick="editFile('${fullPath}')" class="p-1.5 text-zinc-400 hover:text-blue-400 hover:bg-blue-500/10 rounded transition-colors" title="Edit"><i data-lucide="edit-3" class="w-4 h-4"></i></button>` : ''}
+                                ${!f.is_dir ? `<a href="/api/fs/download?path=${encodeURIComponent(fullPath)}" class="p-1.5 text-zinc-400 hover:text-green-400 hover:bg-green-500/10 rounded transition-colors inline-block" title="Download"><i data-lucide="download" class="w-4 h-4"></i></a>` : ''}
+                                <button onclick="deleteFile('${fullPath}')" class="p-1.5 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors" title="Delete"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                            </div>
+                        </div>`;
+                });
+                lucide.createIcons();
+            } catch (err) {
+                showToast("Failed to load directory", "error");
+                list.innerHTML = `<div class="text-center py-8 text-red-400 text-sm">Error loading files</div>`;
+            }
+        }
+
+        async function editFile(path) {
+            try {
+                const res = await fetch(`/api/fs/read?path=${encodeURIComponent(path)}`);
+                if(res.ok) {
+                    const text = await res.text();
+                    editingFilePath = path;
+                    document.getElementById('editor-content').value = text;
+                    document.getElementById('editor-title').innerText = path.split('/').pop();
+                    
+                    const modal = document.getElementById('editor-modal');
+                    const card = document.getElementById('editor-card');
+                    modal.classList.remove('hidden');
+                    modal.classList.add('flex');
+                    
+                    // Animate In
+                    requestAnimationFrame(() => {
+                        modal.classList.remove('opacity-0');
+                        card.classList.remove('scale-95');
+                    });
+                } else {
+                    showToast('Cannot open file (might be binary)', 'error');
+                }
+            } catch {
+                showToast('Failed to open file', 'error');
+            }
+        }
+
+        function closeEditor() {
+            const modal = document.getElementById('editor-modal');
+            const card = document.getElementById('editor-card');
+            modal.classList.add('opacity-0');
+            card.classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300);
+        }
+
+        async function saveFile() {
+            const btn = document.querySelector('#editor-modal button.bg-blue-600');
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = `<i data-lucide="loader-2" class="w-3.5 h-3.5 loader"></i> Saving...`;
+            lucide.createIcons();
+
+            const content = document.getElementById('editor-content').value;
+            const formData = new FormData();
+            formData.append('path', editingFilePath);
+            formData.append('content', content);
+            
+            try {
+                const res = await fetch('/api/fs/write', { method: 'POST', body: formData });
+                if(res.ok) { 
+                    showToast('File saved successfully', 'success');
+                    closeEditor(); 
+                } else throw new Error();
+            } catch {
+                showToast('Failed to save file', 'error');
+            } finally {
+                btn.innerHTML = originalHTML;
+                lucide.createIcons();
+            }
+        }
+
+        async function deleteFile(path) {
+            if(confirm('Are you sure you want to delete ' + path.split('/').pop() + '?')) {
+                const formData = new FormData(); formData.append('path', path);
+                try {
+                    const res = await fetch('/api/fs/delete', { method: 'POST', body: formData });
+                    if(res.ok) {
+                        showToast('Deleted successfully', 'success');
+                        loadFiles(currentPath);
+                    } else throw new Error();
+                } catch {
+                    showToast('Failed to delete', 'error');
+                }
+            }
+        }
+
+        async function uploadFile(e) {
+            const fileInput = e.target;
+            if(!fileInput.files.length) return;
+            
+            showToast('Uploading ' + fileInput.files[0].name + '...', 'info');
+            
+            const formData = new FormData();
+            formData.append('path', currentPath);
+            formData.append('file', fileInput.files[0]);
+            
+            try {
+                const res = await fetch('/api/fs/upload', { method: 'POST', body: formData });
+                if(res.ok) {
+                    showToast('Upload complete', 'success');
+                    loadFiles(currentPath);
+                } else throw new Error();
+            } catch {
+                showToast('Upload failed', 'error');
+            }
+            fileInput.value = '';
+        }
+    </script>
 </body>
 </html>
 """
@@ -480,7 +447,7 @@ def get_safe_path(subpath: str):
     subpath = (subpath or "").strip("/")
     target = os.path.abspath(os.path.join(BASE_DIR, subpath))
     if not target.startswith(BASE_DIR):
-        raise HTTPException(status_code=403, detail="Access denied outside server directory")
+        raise HTTPException(status_code=403, detail="Access denied outside /app")
     return target
 
 async def broadcast(message: str):
@@ -596,23 +563,6 @@ async def fs_upload(path: str = Form(""), file: UploadFile = File(...)):
     target_file = os.path.join(target_dir, file.filename)
     with open(target_file, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    return {"status": "ok"}
-
-@app.post("/api/fs/rename")
-def fs_rename(path: str = Form(...), new_name: str = Form(...)):
-    target = get_safe_path(path)
-    if not os.path.exists(target):
-        raise HTTPException(404, "File not found")
-    if "/" in new_name or "\\" in new_name:
-        raise HTTPException(400, "Invalid new name")
-    new_target = get_safe_path(os.path.join(os.path.dirname(path), new_name))
-    os.rename(target, new_target)
-    return {"status": "ok"}
-
-@app.post("/api/fs/mkdir")
-def fs_mkdir(path: str = Form(...)):
-    target = get_safe_path(path)
-    os.makedirs(target, exist_ok=True)
     return {"status": "ok"}
 
 @app.post("/api/fs/delete")
