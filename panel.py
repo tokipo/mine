@@ -1,11 +1,11 @@
 import os
 import asyncio
 import collections
-import shutil
 from fastapi import FastAPI, WebSocket, Request, Response, Form, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import shutil
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -13,8 +13,12 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 mc_process = None
 output_history = collections.deque(maxlen=300)
 connected_clients = set()
-BASE_DIR = os.path.abspath("/app")
+# Automatically adapts to Hugging Face Docker environments (/app, /home/user/app, etc.)
+BASE_DIR = os.path.abspath(os.getcwd())
 
+# -----------------
+# HTML FRONTEND (Ultra-Modern UI)
+# -----------------
 HTML_CONTENT = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -466,31 +470,39 @@ function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(
 loadDir('');
 </script>
 </body>
-</html>"""
+</html>
+"""
 
+# -----------------
+# UTILITIES
+# -----------------
 def get_safe_path(subpath: str):
     subpath = (subpath or "").strip("/")
     target = os.path.abspath(os.path.join(BASE_DIR, subpath))
     if not target.startswith(BASE_DIR):
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=403, detail="Access denied outside server directory")
     return target
 
 async def broadcast(message: str):
     output_history.append(message)
-    dead = set()
+    dead_clients = set()
     for client in connected_clients:
         try:
             await client.send_text(message)
         except:
-            dead.add(client)
-    connected_clients.difference_update(dead)
+            dead_clients.add(client)
+    connected_clients.difference_update(dead_clients)
 
-async def read_stream(stream):
+# -----------------
+# SERVER PROCESSES
+# -----------------
+async def read_stream(stream, prefix=""):
     while True:
         try:
             line = await stream.readline()
             if not line: break
-            await broadcast(line.decode('utf-8', errors='replace').rstrip('\r\n'))
+            line_str = line.decode('utf-8', errors='replace').rstrip('\r\n')
+            await broadcast(prefix + line_str)
         except Exception:
             break
 
@@ -510,8 +522,10 @@ async def start_minecraft():
         "-jar", "purpur.jar", "--nogui"
     ]
     mc_process = await asyncio.create_subprocess_exec(
-        *java_args, stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        *java_args,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
         cwd=BASE_DIR
     )
     asyncio.create_task(read_stream(mc_process.stdout))
@@ -520,12 +534,15 @@ async def start_minecraft():
 async def startup_event():
     asyncio.create_task(start_minecraft())
 
+# -----------------
+# API ROUTING
+# -----------------
 @app.get("/")
 def get_panel():
     return HTMLResponse(content=HTML_CONTENT)
 
 @app.websocket("/ws")
-async def ws_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     connected_clients.add(websocket)
     for line in output_history:
@@ -537,7 +554,7 @@ async def ws_endpoint(websocket: WebSocket):
                 mc_process.stdin.write((cmd + "\n").encode('utf-8'))
                 await mc_process.stdin.drain()
     except:
-        connected_clients.discard(websocket)
+        connected_clients.remove(websocket)
 
 @app.get("/api/fs/list")
 def fs_list(path: str = ""):
@@ -554,8 +571,11 @@ def fs_read(path: str):
     target = get_safe_path(path)
     if not os.path.isfile(target): raise HTTPException(400, "Not a file")
     try:
-        with open(target, 'r', encoding='utf-8') as f: return Response(content=f.read(), media_type="text/plain")
-    except: raise HTTPException(400, "File is binary")
+        with open(target, 'r', encoding='utf-8') as f:
+            return Response(content=f.read(), media_type="text/plain")
+    except UnicodeDecodeError:
+        # Prevent binary files (like .jar or .world) from crashing the API/Frontend
+        raise HTTPException(400, "File is binary or unsupported encoding")
 
 @app.get("/api/fs/download")
 def fs_download(path: str):
@@ -565,37 +585,41 @@ def fs_download(path: str):
 
 @app.post("/api/fs/write")
 def fs_write(path: str = Form(...), content: str = Form(...)):
-    with open(get_safe_path(path), 'w', encoding='utf-8') as f: f.write(content)
+    target = get_safe_path(path)
+    with open(target, 'w', encoding='utf-8') as f:
+        f.write(content)
     return {"status": "ok"}
 
 @app.post("/api/fs/upload")
 async def fs_upload(path: str = Form(""), file: UploadFile = File(...)):
-    with open(os.path.join(get_safe_path(path), file.filename), "wb") as buffer:
+    target_dir = get_safe_path(path)
+    target_file = os.path.join(target_dir, file.filename)
+    with open(target_file, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-    return {"status": "ok"}
-
-@app.post("/api/fs/delete")
-def fs_delete(path: str = Form(...)):
-    t = get_safe_path(path)
-    if os.path.isdir(t): shutil.rmtree(t)
-    else: os.remove(t)
-    return {"status": "ok"}
-
-@app.post("/api/fs/mkdir")
-def fs_mkdir(path: str = Form(...)):
-    os.makedirs(get_safe_path(path), exist_ok=True)
     return {"status": "ok"}
 
 @app.post("/api/fs/rename")
 def fs_rename(path: str = Form(...), new_name: str = Form(...)):
-    src = get_safe_path(path)
-    dst = os.path.join(os.path.dirname(src), new_name)
-    os.rename(src, dst)
+    target = get_safe_path(path)
+    if not os.path.exists(target):
+        raise HTTPException(404, "File not found")
+    if "/" in new_name or "\\" in new_name:
+        raise HTTPException(400, "Invalid new name")
+    new_target = get_safe_path(os.path.join(os.path.dirname(path), new_name))
+    os.rename(target, new_target)
     return {"status": "ok"}
 
-@app.post("/api/fs/move")
-def fs_move(src_path: str = Form(...), dst_path: str = Form(...)):
-    shutil.move(get_safe_path(src_path), get_safe_path(dst_path))
+@app.post("/api/fs/mkdir")
+def fs_mkdir(path: str = Form(...)):
+    target = get_safe_path(path)
+    os.makedirs(target, exist_ok=True)
+    return {"status": "ok"}
+
+@app.post("/api/fs/delete")
+def fs_delete(path: str = Form(...)):
+    target = get_safe_path(path)
+    if os.path.isdir(target): shutil.rmtree(target)
+    else: os.remove(target)
     return {"status": "ok"}
 
 if __name__ == "__main__":
