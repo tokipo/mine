@@ -388,7 +388,7 @@ async def boot_mc():
     
     # Low resource flags
     mc_process = await asyncio.create_subprocess_exec(
-        "java", "-Xmx4G", "-Xms1G", "-Dfile.encoding=UTF-8", "-jar", jar, "--nogui",
+        "java", "-Xmx8G", "-Xms8G", "-Dfile.encoding=UTF-8", "-jar", jar, "--nogui",
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, cwd=BASE_DIR
     )
     asyncio.create_task(stream_output(mc_process.stdout))
