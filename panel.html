@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MC Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--f:'Inter',system-ui,sans-serif;--mono:'JetBrains Mono',monospace;--r:14px;--r-sm:8px;--dur:.2s;--ease:cubic-bezier(.4,0,.2,1)}
+[data-theme=dark]{--bg:#0a0a0a;--s1:#141414;--s2:#1c1c1e;--s3:#2c2c2e;--s4:#3a3a3c;--bd:rgba(255,255,255,.06);--bd2:rgba(255,255,255,.1);--t1:#f5f5f7;--t2:rgba(255,255,255,.55);--t3:rgba(255,255,255,.25);--acc:#32d74b;--acc2:#28a745;--acc-bg:rgba(50,215,75,.08);--red:#ff453a;--red-bg:rgba(255,69,58,.1);--yel:#ffd60a;--blu:#0a84ff;--blu-bg:rgba(10,132,255,.1);--glass:rgba(20,20,20,.82);--glass2:rgba(28,28,30,.9);--overlay:rgba(0,0,0,.6);--sh:0 8px 32px rgba(0,0,0,.5)}
+[data-theme=light]{--bg:#f0f0f2;--s1:#fff;--s2:#f5f5f7;--s3:#e8e8ed;--s4:#d1d1d6;--bd:rgba(0,0,0,.06);--bd2:rgba(0,0,0,.1);--t1:#1d1d1f;--t2:rgba(0,0,0,.5);--t3:rgba(0,0,0,.2);--acc:#28cd41;--acc2:#1fa834;--acc-bg:rgba(40,205,65,.08);--red:#ff3b30;--red-bg:rgba(255,59,48,.08);--yel:#ff9f0a;--blu:#007aff;--blu-bg:rgba(0,122,255,.08);--glass:rgba(255,255,255,.82);--glass2:rgba(245,245,247,.9);--overlay:rgba(0,0,0,.3);--sh:0 8px 32px rgba(0,0,0,.08)}
+html,body{height:100%;height:100dvh;overflow:hidden}
+body{font-family:var(--f);background:var(--bg);color:var(--t1);-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--s4);border-radius:99px}::-webkit-scrollbar-thumb:hover{background:var(--t3)}
+input,select,textarea,button{font-family:inherit}
+
+/* ── Login Modal ─── */
+.login-overlay{position:fixed;inset:0;background:var(--overlay);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);display:flex;align-items:center;justify-content:center;z-index:10000}
+.login-card{background:var(--glass2);border:1px solid var(--bd2);border-radius:20px;padding:40px;width:340px;text-align:center;box-shadow:var(--sh);animation:loginIn .5s var(--ease)}
+@keyframes loginIn{from{opacity:0;transform:scale(.92) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.login-card h2{font-size:20px;font-weight:700;margin-bottom:6px}
+.login-card p{font-size:13px;color:var(--t2);margin-bottom:24px}
+.login-card .avatar{width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg,var(--acc),var(--blu));margin:0 auto 20px;display:flex;align-items:center;justify-content:center;font-size:28px}
+.login-input{width:100%;padding:12px 16px;border-radius:10px;border:1px solid var(--bd2);background:var(--s1);color:var(--t1);font-size:14px;outline:none;transition:border var(--dur)}
+.login-input:focus{border-color:var(--acc)}
+.login-btn{width:100%;padding:12px;border-radius:10px;border:none;background:var(--acc);color:#fff;font-size:14px;font-weight:600;cursor:pointer;margin-top:14px;transition:all var(--dur)}
+.login-btn:hover{background:var(--acc2);transform:translateY(-1px)}
+.login-err{color:var(--red);font-size:12px;margin-top:10px;min-height:18px}
+
+/* ── Layout ─── */
+.app{height:100%;display:flex;flex-direction:column}
+.toolbar{height:52px;background:var(--glass);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 18px;gap:14px;flex-shrink:0;z-index:100}
+.traffic{display:flex;gap:7px}.dot{width:12px;height:12px;border-radius:50%;cursor:default;transition:opacity var(--dur)}.dot:hover{opacity:.7}
+.tb-center{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.pip{width:8px;height:8px;border-radius:50%;background:var(--red);transition:background .4s}
+.pip.on{background:var(--acc);box-shadow:0 0 8px var(--acc)}
+.tb-right{margin-left:auto;display:flex;gap:8px}
+.icon-btn{width:32px;height:32px;border-radius:var(--r-sm);border:1px solid var(--bd);background:var(--s2);color:var(--t2);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all var(--dur)}
+.icon-btn:hover{color:var(--t1);background:var(--s3);border-color:var(--bd2)}
+
+.app-body{flex:1;display:flex;overflow:hidden;min-height:0}
+.sidebar{width:200px;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-right:1px solid var(--bd);display:flex;flex-direction:column;padding:12px 8px;gap:2px;flex-shrink:0}
+.nav-label{font-size:10px;font-weight:700;color:var(--t3);padding:12px 12px 6px;text-transform:uppercase;letter-spacing:.5px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r-sm);font-size:13px;font-weight:500;color:var(--t2);cursor:pointer;border:none;background:none;text-align:left;width:100%;transition:all var(--dur)}
+.nav-item:hover{background:var(--s3);color:var(--t1)}
+.nav-item.active{background:var(--acc-bg);color:var(--acc)}
+.nav-item svg{width:16px;height:16px;flex-shrink:0}
+
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.tab-pane{display:none;flex:1;flex-direction:column;padding:16px;overflow:hidden;gap:16px}
+.tab-pane.active{display:flex}
+
+/* ── Window Card ─── */
+.win{flex:1;display:flex;flex-direction:column;background:var(--s1);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden;box-shadow:var(--sh)}
+.win-bar{height:44px;background:var(--s2);border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 16px;gap:10px;flex-shrink:0}
+.win-title{font-size:12px;font-weight:600;color:var(--t2)}
+
+/* ── Console ─── */
+.log-out{flex:1;overflow-y:auto;padding:14px 16px;font-family:var(--mono);font-size:12px;line-height:1.7;color:var(--t2);background:var(--s1)}
+.log-out div{padding:1px 0;border-radius:2px}.log-out div:hover{background:var(--s2)}
+.cmd-bar{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--s2);border-top:1px solid var(--bd)}
+.cmd-prompt{font-family:var(--mono);font-size:12px;color:var(--acc);font-weight:600}
+.cmd-in{flex:1;background:transparent;border:none;font-family:var(--mono);font-size:12px;color:var(--t1);outline:none}
+.ctrl-btns{display:flex;gap:6px}
+.ctrl-btn{padding:6px 14px;border-radius:var(--r-sm);border:1px solid var(--bd);background:var(--s2);color:var(--t1);font-size:11px;font-weight:600;cursor:pointer;transition:all var(--dur);white-space:nowrap}
+.ctrl-btn:hover{background:var(--s3);border-color:var(--bd2)}
+.ctrl-btn.green{border-color:var(--acc);color:var(--acc)}.ctrl-btn.green:hover{background:var(--acc-bg)}
+.ctrl-btn.red{border-color:var(--red);color:var(--red)}.ctrl-btn.red:hover{background:var(--red-bg)}
+.ctrl-btn.blue{border-color:var(--blu);color:var(--blu)}.ctrl-btn.blue:hover{background:var(--blu-bg)}
+
+/* ── Files ─── */
+.file-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.breadcrumb{display:flex;align-items:center;gap:2px;flex:1;overflow-x:auto;white-space:nowrap;font-size:12px}
+.bread-seg{padding:4px 8px;border-radius:6px;border:none;background:none;color:var(--t2);cursor:pointer;font-size:12px;font-weight:500;font-family:var(--f)}
+.bread-seg:hover{background:var(--s3);color:var(--t1)}
+.bread-sep{color:var(--t3);font-size:10px}
+.storage-bar{font-size:11px;color:var(--t3);display:flex;align-items:center;gap:8px}
+.storage-track{width:80px;height:4px;background:var(--s3);border-radius:99px;overflow:hidden}
+.storage-fill{height:100%;background:var(--acc);border-radius:99px;transition:width .4s var(--ease)}
+
+.file-list{flex:1;overflow-y:auto}
+.file-row{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--bd);cursor:pointer;transition:background var(--dur)}
+.file-row:hover{background:var(--s2)}
+.file-row:hover .row-acts{opacity:1;transform:translateX(0)}
+.file-icon{font-size:18px;width:24px;text-align:center}
+.file-info{flex:1;min-width:0}
+.file-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-size{font-size:11px;color:var(--t3)}
+.row-acts{display:flex;gap:4px;opacity:0;transform:translateX(8px);transition:all var(--dur)}
+.act-btn{padding:4px 10px;border-radius:6px;border:none;background:var(--s3);color:var(--t2);font-size:11px;font-weight:500;cursor:pointer;transition:all var(--dur);font-family:var(--f)}
+.act-btn:hover{background:var(--s4);color:var(--t1)}
+.act-btn.del:hover{background:var(--red-bg);color:var(--red)}
+
+/* ── Editor Modal ─── */
+.modal-overlay{position:fixed;inset:0;background:var(--overlay);backdrop-filter:blur(10px);z-index:999;display:none;align-items:center;justify-content:center;padding:24px}
+.modal-overlay.show{display:flex}
+.modal{background:var(--s1);border:1px solid var(--bd2);border-radius:16px;box-shadow:var(--sh);display:flex;flex-direction:column;animation:modalIn .3s var(--ease);overflow:hidden}
+@keyframes modalIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+.modal-sm{width:380px}
+.modal-lg{width:90vw;height:85vh;max-width:1000px}
+.modal-bar{height:48px;background:var(--s2);border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 16px;gap:10px;flex-shrink:0}
+.modal-bar .modal-title{flex:1;font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modal-body{padding:20px;display:flex;flex-direction:column;gap:14px}
+.modal-body label{font-size:12px;font-weight:600;color:var(--t2)}
+.modal-body input{padding:10px 14px;border-radius:var(--r-sm);border:1px solid var(--bd2);background:var(--s2);color:var(--t1);font-size:13px;outline:none}
+.modal-body input:focus{border-color:var(--acc)}
+.editor-area{flex:1;background:var(--s1);color:var(--t1);font-family:var(--mono);font-size:13px;line-height:1.6;padding:16px;border:none;outline:none;resize:none;tab-size:4}
+
+/* ── Plugins ─── */
+.pl-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pl-select{padding:8px 12px;border-radius:var(--r-sm);background:var(--s2);color:var(--t1);border:1px solid var(--bd);font-size:12px;outline:none}
+.pl-search{flex:1;min-width:160px;padding:8px 14px;border-radius:var(--r-sm);background:var(--s2);color:var(--t1);border:1px solid var(--bd);font-size:13px;outline:none}
+.pl-search:focus{border-color:var(--acc)}
+.pl-grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;padding:4px 0;align-content:start}
+.pl-card{background:var(--s2);border:1px solid var(--bd);border-radius:var(--r);padding:16px;display:flex;flex-direction:column;gap:8px;transition:all var(--dur)}
+.pl-card:hover{border-color:var(--bd2);transform:translateY(-2px);box-shadow:var(--sh)}
+.pl-card h4{font-size:14px;font-weight:600}.pl-card p{font-size:11px;color:var(--t2);flex:1;line-height:1.5}
+.pl-card .pl-meta{font-size:10px;color:var(--t3);display:flex;gap:8px}
+.pl-install{padding:8px 16px;border-radius:var(--r-sm);border:none;background:var(--acc);color:#fff;font-size:12px;font-weight:600;cursor:pointer;transition:all var(--dur);align-self:flex-start}
+.pl-install:hover{background:var(--acc2)}
+
+/* ── Toasts ─── */
+.toast-container{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column-reverse;gap:8px;z-index:9999}
+.toast{background:var(--glass2);backdrop-filter:blur(20px);border:1px solid var(--bd2);border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:10px;font-size:13px;font-weight:500;box-shadow:var(--sh);transform:translateX(120%);opacity:0;transition:all .35s var(--ease)}
+.toast.show{transform:translateX(0);opacity:1}
+.toast-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+/* ── Responsive ─── */
+@media(max-width:768px){.sidebar{width:54px;padding:8px 4px}.nav-item span{display:none}.nav-item{justify-content:center;padding:10px}.nav-label{display:none}.toolbar{padding:0 12px}}
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div class="login-overlay" id="login-overlay">
+<div class="login-card">
+  <div class="avatar">⛏</div>
+  <h2>Minecraft Panel</h2>
+  <p>Enter password to continue</p>
+  <input class="login-input" id="login-pass" type="password" placeholder="Password" autofocus>
+  <button class="login-btn" id="login-btn">Sign In</button>
+  <div class="login-err" id="login-err"></div>
+</div>
+</div>
+
+<!-- App -->
+<div class="app" id="app" style="display:none">
+<header class="toolbar">
+  <div class="traffic">
+    <div class="dot" style="background:#ff5f57"></div>
+    <div class="dot" style="background:#febc2e"></div>
+    <div class="dot" style="background:#28c840"></div>
+  </div>
+  <div class="tb-center"><div class="pip" id="pip"></div><span>Minecraft Panel</span></div>
+  <div class="tb-right">
+    <button class="icon-btn" onclick="toggleTheme()" title="Toggle theme">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</header>
+<div class="app-body">
+  <aside class="sidebar">
+    <div class="nav-label">Panel</div>
+    <button class="nav-item active" data-tab="console" onclick="switchTab('console')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      <span>Console</span>
+    </button>
+    <button class="nav-item" data-tab="files" onclick="switchTab('files')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      <span>Files</span>
+    </button>
+    <button class="nav-item" data-tab="plugins" onclick="switchTab('plugins')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v3"/></svg>
+      <span>Plugins</span>
+    </button>
+  </aside>
+  <main class="main">
+    <!-- Console Tab -->
+    <div class="tab-pane active" id="tab-console">
+      <div class="win">
+        <div class="win-bar">
+          <div class="win-title" style="flex:1">Live Server Console</div>
+          <div class="ctrl-btns">
+            <button class="ctrl-btn green" onclick="mcCtrl('start')">▶ Start</button>
+            <button class="ctrl-btn" onclick="mcCtrl('stop')">■ Stop</button>
+            <button class="ctrl-btn blue" onclick="mcCtrl('restart')">↻ Restart</button>
+            <button class="ctrl-btn red" onclick="mcCtrl('kill')">✕ Kill</button>
+          </div>
+        </div>
+        <div class="log-out" id="logs"></div>
+        <div class="cmd-bar">
+          <span class="cmd-prompt">&gt;</span>
+          <input class="cmd-in" id="cmd" type="text" placeholder="Enter command..." autocomplete="off">
+        </div>
+      </div>
+    </div>
+    <!-- Files Tab -->
+    <div class="tab-pane" id="tab-files">
+      <div class="file-toolbar">
+        <div class="breadcrumb" id="breadcrumb"></div>
+        <div class="storage-bar" id="storage-bar"></div>
+        <button class="ctrl-btn" onclick="showNewFolder()">+ Folder</button>
+        <button class="ctrl-btn" onclick="showNewFile()">+ File</button>
+        <button class="ctrl-btn" onclick="document.getElementById('upload-input').click()">↑ Upload</button>
+        <input type="file" id="upload-input" style="display:none" onchange="uploadFile()" multiple>
+      </div>
+      <div class="win" style="flex:1">
+        <div class="file-list" id="file-list"></div>
+      </div>
+    </div>
+    <!-- Plugins Tab -->
+    <div class="tab-pane" id="tab-plugins">
+      <div class="pl-toolbar">
+        <select class="pl-select" id="pl-loader"><option value="paper">Paper / Spigot</option><option value="purpur">Purpur</option></select>
+        <select class="pl-select" id="pl-ver">
+          <option>1.21.4</option><option>1.21.3</option><option>1.21.1</option><option>1.21</option>
+          <option>1.20.6</option><option>1.20.4</option><option>1.20.2</option><option>1.20.1</option>
+          <option>1.19.4</option><option>1.19.2</option>
+        </select>
+        <input class="pl-search" id="pl-q" placeholder="Search plugins on Modrinth..." autocomplete="off">
+        <button class="ctrl-btn green" onclick="searchPlugins()" style="border-color:var(--acc)">Search</button>
+      </div>
+      <div class="pl-grid" id="pl-list"></div>
+    </div>
+  </main>
+</div>
+</div>
+
+<!-- Editor Modal -->
+<div class="modal-overlay" id="editor-modal">
+<div class="modal modal-lg">
+  <div class="modal-bar">
+    <div class="modal-title" id="editor-title">Editing</div>
+    <button class="ctrl-btn green" onclick="saveEditor()">Save</button>
+    <button class="ctrl-btn" onclick="closeModal('editor-modal')">Close</button>
+  </div>
+  <textarea class="editor-area" id="editor-text" spellcheck="false"></textarea>
+</div>
+</div>
+
+<!-- Prompt Modal (rename/new) -->
+<div class="modal-overlay" id="prompt-modal">
+<div class="modal modal-sm">
+  <div class="modal-bar"><div class="modal-title" id="prompt-title">Input</div><button class="ctrl-btn" onclick="closeModal('prompt-modal')">✕</button></div>
+  <div class="modal-body">
+    <label id="prompt-label">Name</label>
+    <input id="prompt-input" autocomplete="off">
+    <button class="ctrl-btn green" id="prompt-ok" style="align-self:flex-end;border-color:var(--acc)">Confirm</button>
+  </div>
+</div>
+</div>
+
+<div class="toast-container" id="toasts"></div>
+
+<script>
+/* ── Auth ─── */
+const $ = id => document.getElementById(id);
+let pass = localStorage.getItem('mc-pass') || '';
+
+async function tryLogin(p) {
+  try {
+    const r = await fetch('/api/auth', {method:'POST', body: new URLSearchParams({pass:p})});
+    if (r.ok) { pass = p; localStorage.setItem('mc-pass', p); $('login-overlay').style.display='none'; $('app').style.display='flex'; initApp(); }
+    else { $('login-err').textContent='Incorrect password'; }
+  } catch(e) { $('login-err').textContent='Connection error'; }
+}
+
+$('login-btn').onclick = () => tryLogin($('login-pass').value);
+$('login-pass').onkeydown = e => { if(e.key==='Enter') tryLogin($('login-pass').value); };
+if (pass) tryLogin(pass); else $('login-overlay').style.display='flex';
+
+/* ── Theme ─── */
+function toggleTheme() {
+  const h = document.documentElement;
+  h.dataset.theme = h.dataset.theme === 'dark' ? 'light' : 'dark';
+}
+
+/* ── Toast ─── */
+function toast(msg, type='ok') {
+  const d = document.createElement('div'); d.className='toast';
+  const color = type==='err' ? 'var(--red)' : type==='warn' ? 'var(--yel)' : 'var(--acc)';
+  d.innerHTML=`<div class="toast-dot" style="background:${color}"></div><span>${msg}</span>`;
+  $('toasts').appendChild(d);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>d.classList.add('show')));
+  setTimeout(()=>{d.classList.remove('show');setTimeout(()=>d.remove(),400)},3500);
+}
+
+/* ── Tabs ─── */
+function switchTab(id) {
+  document.querySelectorAll('.tab-pane').forEach(e=>e.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(e=>e.classList.remove('active'));
+  $('tab-'+id).classList.add('active');
+  document.querySelector(`[data-tab="${id}"]`).classList.add('active');
+  if (id==='files' && !curPath && curPath !== '') refreshFiles();
+}
+
+/* ── WebSocket Console ─── */
+let ws;
+function connectWS() {
+  ws = new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws?pass=${encodeURIComponent(pass)}`);
+  ws.onopen = () => { $('pip').classList.add('on'); };
+  ws.onmessage = e => {
+    const el = $('logs'), d = document.createElement('div');
+    d.textContent = e.data; el.appendChild(d);
+    if (el.children.length > 500) el.removeChild(el.firstChild);
+    el.scrollTop = el.scrollHeight;
+  };
+  ws.onclose = () => { $('pip').classList.remove('on'); setTimeout(connectWS, 3000); };
+  ws.onerror = () => {};
+}
+
+$('cmd').onkeydown = e => {
+  if (e.key==='Enter' && $('cmd').value.trim()) {
+    if (ws && ws.readyState===1) ws.send($('cmd').value);
+    $('cmd').value='';
+  }
+};
+
+async function mcCtrl(act) {
+  try {
+    const r = await fetch('/api/mc/control', {method:'POST', body: new URLSearchParams({action:act})});
+    toast(await r.text());
+  } catch(e) { toast('Request failed','err'); }
+}
+
+/* ── Files ─── */
+let curPath = '';
+function fmtBytes(b) { if(!+b) return '0 B'; const i=Math.floor(Math.log(b)/Math.log(1024)); return `${(b/1024**i).toFixed(1)} ${['B','KB','MB','GB','TB'][i]}`; }
+
+async function refreshFiles(p) {
+  if (p !== undefined) curPath = p;
+  // Breadcrumb
+  const parts = curPath.split('/').filter(Boolean);
+  let bc = `<button class="bread-seg" onclick="refreshFiles('')">Root</button>`;
+  parts.forEach((x,i) => {
+    bc += `<span class="bread-sep">/</span><button class="bread-seg" onclick="refreshFiles('${parts.slice(0,i+1).join('/')}')">${x}</button>`;
+  });
+  $('breadcrumb').innerHTML = bc;
+
+  // Storage
+  try {
+    const d = await (await fetch('/api/fs/disk')).json();
+    const pct = ((d.used/d.total)*100).toFixed(1);
+    $('storage-bar').innerHTML = `<div class="storage-track"><div class="storage-fill" style="width:${pct}%"></div></div>${fmtBytes(d.used)} / ${fmtBytes(d.total)}`;
+  } catch(e){}
+
+  // List
+  const fl = $('file-list'); fl.innerHTML='';
+  try {
+    const items = await (await fetch(`/api/fs/list?path=${encodeURIComponent(curPath)}`)).json();
+    if (curPath) items.unshift({name:'..', is_dir:true, _parent:true});
+    const isTxt = n => /\.(txt|yml|yaml|json|properties|sh|py|md|csv|log|cfg|conf|toml|xml|html|css|js|java|kt|lua|ini)$/i.test(n);
+    items.forEach(f => {
+      const fp = (curPath ? curPath+'/' : '') + f.name;
+      const row = document.createElement('div'); row.className='file-row';
+      if (f.is_dir) row.onclick = () => f._parent ? refreshFiles(curPath.split('/').slice(0,-1).join('/')) : refreshFiles(fp);
+      row.innerHTML = `
+        <div class="file-icon">${f.is_dir ? '📁' : '📄'}</div>
+        <div class="file-info"><div class="file-name">${f.name}</div>${f.is_dir||f._parent ? '' : `<div class="file-size">${fmtBytes(f.size)}</div>`}</div>
+        ${f._parent ? '' : `<div class="row-acts">
+          ${isTxt(f.name)&&!f.is_dir ? `<button class="act-btn" onclick="event.stopPropagation();openEditor('${fp}','${f.name}')">Edit</button>` : ''}
+          ${!f.is_dir ? `<a class="act-btn" href="/api/fs/download?path=${encodeURIComponent(fp)}" onclick="event.stopPropagation()">Download</a>` : ''}
+          <button class="act-btn" onclick="event.stopPropagation();renamePath('${fp}','${f.name}')">Rename</button>
+          <button class="act-btn del" onclick="event.stopPropagation();deletePath('${fp}')">Delete</button>
+        </div>`}`;
+      fl.appendChild(row);
+    });
+  } catch(e) { fl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3)">Error loading files</div>'; }
+}
+
+async function deletePath(p) {
+  if (!confirm('Delete ' + p + '?')) return;
+  try { await fetch('/api/fs/delete', {method:'POST', body: new URLSearchParams({path:p})}); toast('Deleted'); refreshFiles(); }
+  catch(e) { toast('Delete failed','err'); }
+}
+
+async function uploadFile() {
+  const files = $('upload-input').files;
+  for (const file of files) {
+    const fd = new FormData(); fd.append('path', curPath); fd.append('file', file);
+    try { await fetch('/api/fs/upload', {method:'POST', body:fd}); toast(`Uploaded ${file.name}`); }
+    catch(e) { toast(`Failed: ${file.name}`,'err'); }
+  }
+  $('upload-input').value=''; refreshFiles();
+}
+
+/* ── Modals ─── */
+function closeModal(id) { $(id).classList.remove('show'); }
+function openModal(id) { $(id).classList.add('show'); }
+
+function promptModal(title, label, value, cb) {
+  $('prompt-title').textContent = title;
+  $('prompt-label').textContent = label;
+  $('prompt-input').value = value || '';
+  $('prompt-ok').onclick = () => { cb($('prompt-input').value); closeModal('prompt-modal'); };
+  $('prompt-input').onkeydown = e => { if(e.key==='Enter') { cb($('prompt-input').value); closeModal('prompt-modal'); } };
+  openModal('prompt-modal');
+  setTimeout(() => $('prompt-input').focus(), 100);
+}
+
+function renamePath(fp, oldName) {
+  promptModal('Rename', 'New name', oldName, async (n) => {
+    if (!n || n===oldName) return;
+    try { await fetch('/api/fs/rename', {method:'POST', body: new URLSearchParams({path:fp, new_name:n})}); toast('Renamed'); refreshFiles(); }
+    catch(e) { toast('Rename failed','err'); }
+  });
+}
+function showNewFolder() {
+  promptModal('New Folder', 'Folder name', '', async (n) => {
+    if (!n) return;
+    try { await fetch('/api/fs/new-folder', {method:'POST', body: new URLSearchParams({path:curPath, name:n})}); toast('Folder created'); refreshFiles(); }
+    catch(e) { toast('Failed','err'); }
+  });
+}
+function showNewFile() {
+  promptModal('New File', 'File name', '', async (n) => {
+    if (!n) return;
+    try { await fetch('/api/fs/new-file', {method:'POST', body: new URLSearchParams({path:curPath, name:n})}); toast('File created'); refreshFiles(); }
+    catch(e) { toast('Failed','err'); }
+  });
+}
+
+/* ── Editor ─── */
+let editorPath = '';
+async function openEditor(fp, name) {
+  editorPath = fp; $('editor-title').textContent = name;
+  try { $('editor-text').value = await (await fetch(`/api/fs/read?path=${encodeURIComponent(fp)}`)).text(); }
+  catch(e) { $('editor-text').value = '// Error loading file'; }
+  openModal('editor-modal'); $('editor-text').focus();
+}
+async function saveEditor() {
+  try { await fetch('/api/fs/write', {method:'POST', body: new URLSearchParams({path:editorPath, content:$('editor-text').value})}); toast('Saved ✓'); closeModal('editor-modal'); }
+  catch(e) { toast('Save failed','err'); }
+}
+
+/* ── Plugins ─── */
+$('pl-q').onkeydown = e => { if(e.key==='Enter') searchPlugins(); };
+async function searchPlugins() {
+  const q = $('pl-q').value.trim(); if (!q) return;
+  const list = $('pl-list'); list.innerHTML = '<div style="padding:20px;color:var(--t3)">Searching...</div>';
+  try {
+    const res = await (await fetch(`https://api.modrinth.com/v2/search?query=${encodeURIComponent(q)}&facets=[["project_type:plugin"]]&limit=20`)).json();
+    list.innerHTML = '';
+    if (!res.hits.length) { list.innerHTML='<div style="padding:20px;color:var(--t3)">No results</div>'; return; }
+    res.hits.forEach(p => {
+      const card = document.createElement('div'); card.className='pl-card';
+      card.innerHTML = `<h4>${esc(p.title)}</h4><p>${esc(p.description)}</p>
+        <div class="pl-meta"><span>↓ ${p.downloads?.toLocaleString()||0}</span><span>★ ${p.follows||0}</span></div>
+        <button class="pl-install" onclick="installPlugin('${p.project_id}',${JSON.stringify(p.title).replace(/'/g,"\\'")})" >Install</button>`;
+      list.appendChild(card);
+    });
+  } catch(e) { list.innerHTML='<div style="padding:20px;color:var(--red)">Search failed</div>'; }
+}
+
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+async function installPlugin(id, name) {
+  const loader=$('pl-loader').value, ver=$('pl-ver').value;
+  toast(`Fetching ${name}...`);
+  try {
+    const res = await (await fetch(`https://api.modrinth.com/v2/project/${id}/version?loaders=["${loader}"]&game_versions=["${ver}"]`)).json();
+    if (!res.length) { toast(`No ${loader} build for ${ver}`,'warn'); return; }
+    const file = res[0].files[0];
+    const r = await fetch('/api/plugins/install', {method:'POST', body: new URLSearchParams({url:file.url, filename:file.filename, project_id:id, version_id:res[0].id, name:name})});
+    r.ok ? toast(`Installed ${name} ✓`) : toast('Install failed','err');
+  } catch(e) { toast(`Error: ${e.message}`,'err'); }
+}
+
+/* ── Init ─── */
+function initApp() { connectWS(); refreshFiles(''); }
+</script>
+</body>
+</html>
