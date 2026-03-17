@@ -1,367 +1,679 @@
 import os, asyncio, collections, shutil, urllib.request, json, time
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, Form, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    os.makedirs(PLUGINS_DIR, exist_ok=True)
+    asyncio.create_task(boot_mc())
+    yield
+
 # --- CONFIG ---
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 BASE_DIR = os.environ.get("SERVER_DIR", os.path.abspath("/app"))
 PLUGINS_DIR = os.path.join(BASE_DIR, "plugins")
 mc_process = None
-output_history = collections.deque(maxlen=300)
+output_history = collections.deque(maxlen=500)
 connected_clients = set()
 
-# --- HTML GUI ---
-HTML_CONTENT = """
-<!DOCTYPE html><html lang="en" class="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title>Server Engine</title>
-<script src="https://cdn.tailwindcss.com"></script><script src="https://unpkg.com/lucide@latest"></script>
+# ─────────────────────────────────────────────
+# HTML GUI  —  macOS / Apple-style UI
+# Raw string (r"""…""") so backslashes in JS
+# regex patterns pass through unchanged.
+# ─────────────────────────────────────────────
+HTML_CONTENT = r"""<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>MC Panel</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#050505;--panel:#0a0a0a;--border:#1a1a1a;--accent:#22c55e;--text:#a1a1aa;}
-body{background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,sans-serif;height:100dvh;display:flex;flex-direction:column;overflow:hidden;user-select:none;}
-::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#27272a;border-radius:2px}::-webkit-scrollbar-thumb:hover{background:var(--accent)}
-.tab-pane{display:none;flex:1;flex-direction:column;overflow:hidden;position:relative;animation:fadeIn 0.2s ease-out} .tab-pane.active{display:flex}
-@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
-.nav-btn{transition:all 0.2s} .nav-btn.active{color:var(--accent)} .nav-btn.active::after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:1px;background:var(--accent);box-shadow:0 -1px 4px var(--accent)}
-.log-line{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.4;word-break:break-all;padding:1px 0}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 1px rgba(34,197,94,0.1)}
-.loader{border:2px solid #222;border-top:2px solid var(--accent);border-radius:50%;width:16px;height:16px;animation:spin .6s linear infinite}
-@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
-</style></head>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --f:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text',system-ui,sans-serif;
+  --mono:'JetBrains Mono','SF Mono','Cascadia Code',monospace;
+  --r:12px;--r-sm:8px;--r-lg:16px;--dur:0.18s
+}
+[data-theme=dark]{
+  --bg:#000;--s1:#1C1C1E;--s2:#2C2C2E;--s3:#3A3A3C;
+  --bd:rgba(255,255,255,.08);
+  --t1:#fff;--t2:rgba(255,255,255,.55);--t3:rgba(255,255,255,.22);
+  --acc:#32D74B;--acc-bg:rgba(50,215,75,.12);
+  --red:#FF453A;--yel:#FFD60A;--blu:#0A84FF;
+  --glass:rgba(28,28,30,.8);
+  --sh:0 8px 40px rgba(0,0,0,.7),0 2px 8px rgba(0,0,0,.4);
+  --sh-sm:0 2px 12px rgba(0,0,0,.5)
+}
+[data-theme=light]{
+  --bg:#EBEBEB;--s1:#fff;--s2:#F5F5F7;--s3:#E5E5EA;
+  --bd:rgba(0,0,0,.09);
+  --t1:#1C1C1E;--t2:rgba(0,0,0,.5);--t3:rgba(0,0,0,.22);
+  --acc:#28CD41;--acc-bg:rgba(40,205,65,.1);
+  --red:#FF3B30;--yel:#FF9F0A;--blu:#007AFF;
+  --glass:rgba(255,255,255,.85);
+  --sh:0 8px 40px rgba(0,0,0,.12),0 2px 8px rgba(0,0,0,.06);
+  --sh-sm:0 2px 12px rgba(0,0,0,.1)
+}
+html,body{height:100%;height:100dvh}
+body{font-family:var(--f);background:var(--bg);color:var(--t1);
+  display:flex;flex-direction:column;overflow:hidden;
+  -webkit-font-smoothing:antialiased;transition:background var(--dur),color var(--dur)}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--s3);border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:var(--t3)}
+
+/* TOOLBAR */
+.toolbar{height:52px;min-height:52px;background:var(--glass);
+  backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);
+  border-bottom:1px solid var(--bd);display:flex;align-items:center;
+  padding:0 16px;gap:14px;position:relative;z-index:100;flex-shrink:0;user-select:none}
+.tl-wrap{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.tl{width:12px;height:12px;border-radius:50%;transition:filter var(--dur);cursor:default}
+.tl:hover{filter:brightness(1.25)}
+.tl-r{background:var(--red)}.tl-y{background:var(--yel)}.tl-g{background:var(--acc)}
+.tb-title{position:absolute;left:50%;transform:translateX(-50%);
+  font-size:13px;font-weight:600;letter-spacing:-.3px;color:var(--t1);
+  pointer-events:none;display:flex;align-items:center;gap:7px;white-space:nowrap}
+.pip{width:7px;height:7px;border-radius:50%;background:var(--acc);
+  box-shadow:0 0 6px var(--acc);animation:pip 2.5s ease-in-out infinite}
+@keyframes pip{0%,100%{opacity:1}50%{opacity:.3}}
+.tb-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
+.icon-btn{width:30px;height:30px;border-radius:var(--r-sm);border:1px solid var(--bd);
+  background:var(--s1);color:var(--t2);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all var(--dur)}
+.icon-btn:hover{color:var(--t1);background:var(--s2)}
+.icon-btn svg{width:15px;height:15px;pointer-events:none}
+
+/* LAYOUT */
+.app-body{flex:1;display:flex;overflow:hidden;min-height:0}
+
+/* SIDEBAR */
+.sidebar{width:192px;flex-shrink:0;background:var(--glass);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border-right:1px solid var(--bd);display:flex;flex-direction:column;
+  padding:10px 8px 16px;gap:2px}
+@media(max-width:640px){.sidebar{display:none}}
+.sb-label{font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.6px;color:var(--t3);padding:10px 10px 4px}
+.nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;
+  border-radius:var(--r-sm);font-size:13px;font-weight:500;color:var(--t2);
+  cursor:pointer;transition:all var(--dur);border:none;background:none;width:100%;text-align:left}
+.nav-item:hover{background:var(--s2);color:var(--t1)}
+.nav-item.active{background:var(--acc-bg);color:var(--acc)}
+.nav-item svg{width:16px;height:16px;flex-shrink:0}
+
+/* MAIN */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.tab-pane{display:none;flex:1;flex-direction:column;overflow:hidden;padding:14px;min-height:0}
+.tab-pane.active{display:flex;animation:fu var(--dur) ease-out}
+@keyframes fu{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+
+/* WINDOW */
+.win{flex:1;display:flex;flex-direction:column;background:var(--s1);
+  border:1px solid var(--bd);border-radius:var(--r-lg);overflow:hidden;
+  box-shadow:var(--sh);min-height:0;transition:background var(--dur),border-color var(--dur);
+  position:relative}
+.win-bar{height:40px;min-height:40px;background:var(--s2);border-bottom:1px solid var(--bd);
+  display:flex;align-items:center;padding:0 14px;gap:10px;flex-shrink:0}
+.win-bar-title{flex:1;text-align:center;font-size:12px;font-weight:600;color:var(--t2)}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--acc);box-shadow:0 0 5px var(--acc)}
+
+/* CONSOLE */
+.log-out{flex:1;overflow-y:auto;padding:12px 14px;font-family:var(--mono);
+  font-size:11.5px;line-height:1.65;color:var(--t2);min-height:0}
+.log-line{word-break:break-all;padding:.5px 0}
+.cmd-bar{display:flex;align-items:center;gap:8px;padding:8px 10px;
+  background:var(--s2);border-top:1px solid var(--bd);flex-shrink:0}
+.cmd-prompt{font-family:var(--mono);font-size:13px;color:var(--acc);flex-shrink:0}
+.cmd-in{flex:1;background:var(--s1);border:1px solid var(--bd);border-radius:var(--r-sm);
+  padding:6px 12px;font-family:var(--mono);font-size:12px;color:var(--t1);
+  outline:none;transition:border-color var(--dur),box-shadow var(--dur)}
+.cmd-in:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-bg)}
+.cmd-in::placeholder{color:var(--t3)}
+.send-btn{width:32px;height:32px;flex-shrink:0;background:var(--acc);border:none;
+  border-radius:var(--r-sm);color:#fff;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:opacity var(--dur),transform var(--dur)}
+.send-btn:hover{opacity:.85;transform:scale(.95)}
+.send-btn svg{width:14px;height:14px}
+
+/* FILES */
+.fm-bar{height:44px;min-height:44px;background:var(--s2);border-bottom:1px solid var(--bd);
+  display:flex;align-items:center;padding:0 12px;gap:8px;flex-shrink:0}
+.breadcrumb{flex:1;display:flex;align-items:center;gap:3px;font-size:12px;
+  overflow-x:auto;white-space:nowrap}
+.breadcrumb button{background:none;border:none;color:var(--t2);cursor:pointer;
+  padding:3px 5px;border-radius:5px;font-size:12px;font-family:var(--f)}
+.breadcrumb button:hover{color:var(--acc);background:var(--acc-bg)}
+.breadcrumb .sep{color:var(--t3);font-size:10px;margin:0 1px}
+.file-list{flex:1;overflow-y:auto}
+.file-row{display:flex;align-items:center;gap:10px;padding:9px 16px;
+  border-bottom:1px solid var(--bd);cursor:pointer;transition:background var(--dur)}
+.file-row:hover{background:var(--s2)}
+.file-row:last-child{border-bottom:none}
+.file-name{flex:1;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-del{opacity:0;background:none;border:none;color:var(--red);cursor:pointer;padding:4px;
+  border-radius:6px;display:flex;align-items:center;transition:opacity var(--dur),background var(--dur)}
+.file-row:hover .file-del{opacity:1}
+.file-del:hover{background:rgba(255,59,48,.1)}
+.drag-ov{position:absolute;inset:0;background:rgba(50,215,75,.06);
+  border:2px dashed var(--acc);border-radius:var(--r-lg);
+  display:none;align-items:center;justify-content:center;
+  font-size:15px;font-weight:600;color:var(--acc);z-index:50}
+.drag-ov.on{display:flex}
+
+/* PLUGINS */
+.pl-hd{padding:12px 14px;background:var(--s2);border-bottom:1px solid var(--bd);
+  flex-shrink:0;display:flex;flex-direction:column;gap:10px}
+.segment{display:inline-flex;background:var(--s3);border-radius:var(--r-sm);padding:2px}
+.seg-btn{padding:5px 16px;border-radius:6px;border:none;background:none;
+  color:var(--t2);font-size:12px;font-weight:500;cursor:pointer;
+  transition:all var(--dur);font-family:var(--f)}
+.seg-btn.active{background:var(--s1);color:var(--t1);box-shadow:var(--sh-sm)}
+.pl-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sf-sel,.sf-ver{background:var(--s1);border:1px solid var(--bd);border-radius:var(--r-sm);
+  padding:6px 10px;font-size:12px;color:var(--t1);outline:none;
+  transition:border-color var(--dur);font-family:var(--f)}
+.sf-sel:focus,.sf-ver:focus{border-color:var(--blu)}
+.sf-ver{width:70px;text-align:center}
+.srch-wrap{position:relative;flex:1;min-width:160px}
+.srch-wrap svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);
+  width:13px;height:13px;color:var(--t3);pointer-events:none}
+.sf-srch{width:100%;background:var(--s1);border:1px solid var(--bd);border-radius:var(--r-sm);
+  padding:7px 10px 7px 32px;font-size:12px;color:var(--t1);outline:none;
+  transition:border-color var(--dur),box-shadow var(--dur);font-family:var(--f)}
+.sf-srch:focus{border-color:var(--blu);box-shadow:0 0 0 3px rgba(10,132,255,.15)}
+.sf-srch::placeholder{color:var(--t3)}
+.srch-btn{padding:7px 14px;background:var(--blu);border:none;border-radius:var(--r-sm);
+  color:#fff;font-size:12px;font-weight:600;cursor:pointer;transition:opacity var(--dur);
+  flex-shrink:0;font-family:var(--f)}
+.srch-btn:hover{opacity:.85}
+.pl-grid{flex:1;overflow-y:auto;padding:14px;
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;align-content:start}
+@media(max-width:640px){.pl-grid{grid-template-columns:1fr}}
+.pl-card{background:var(--s2);border:1px solid var(--bd);border-radius:var(--r);padding:14px;
+  display:flex;flex-direction:column;gap:10px;transition:border-color var(--dur),box-shadow var(--dur)}
+.pl-card:hover{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc-bg)}
+.pl-head{display:flex;gap:10px}
+.pl-ico{width:36px;height:36px;border-radius:8px;flex-shrink:0;object-fit:cover;background:var(--s3)}
+.pl-meta{flex:1;min-width:0}
+.pl-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl-desc{font-size:11px;color:var(--t2);line-height:1.5;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.pl-dl{font-size:10px;color:var(--t3);background:var(--s3);padding:2px 6px;
+  border-radius:4px;white-space:nowrap;flex-shrink:0;align-self:flex-start}
+.inst-btn{width:100%;padding:7px;border-radius:var(--r-sm);border:none;
+  background:var(--acc);color:#fff;font-size:12px;font-weight:600;cursor:pointer;
+  transition:opacity var(--dur);display:flex;align-items:center;justify-content:center;
+  gap:5px;font-family:var(--f)}
+.inst-btn:hover{opacity:.85}.inst-btn:disabled{opacity:.4;cursor:not-allowed}
+.pl-empty{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:10px;color:var(--t3);padding:60px 0}
+.pl-empty svg{width:40px;height:40px;opacity:.25}
+.pl-empty p{font-size:13px}
+
+/* SPINNER */
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--bd);
+  border-top-color:var(--acc);animation:sp .6s linear infinite;flex-shrink:0}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* TOAST */
+.toasts{position:fixed;bottom:72px;right:14px;z-index:9999;
+  display:flex;flex-direction:column;gap:8px;pointer-events:none}
+@media(min-width:641px){.toasts{bottom:20px}}
+.toast{background:var(--glass);backdrop-filter:blur(20px) saturate(180%);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);
+  border:1px solid var(--bd);border-radius:var(--r);padding:10px 14px;
+  display:flex;align-items:center;gap:9px;font-size:13px;font-weight:500;
+  box-shadow:var(--sh);pointer-events:auto;
+  transform:translateY(10px);opacity:0;transition:transform .3s ease,opacity .3s ease}
+.toast.show{transform:translateY(0);opacity:1}
+
+/* MOBILE NAV */
+.mob-nav{display:none;background:var(--glass);
+  backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);
+  border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom,0px);flex-shrink:0}
+@media(max-width:640px){.mob-nav{display:block}}
+.mob-inner{display:flex}
+.mob-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;padding:9px 4px;border:none;background:none;color:var(--t3);
+  font-size:10px;font-weight:500;cursor:pointer;transition:color var(--dur);font-family:var(--f)}
+.mob-btn.active{color:var(--acc)}
+.mob-btn svg{width:22px;height:22px}
+</style>
+</head>
 <body>
-<!-- MAIN LAYOUT -->
-<div class="flex flex-1 overflow-hidden">
-    <!-- DESKTOP SIDEBAR -->
-    <aside class="hidden sm:flex flex-col w-14 bg-black border-r border-[#1a1a1a] items-center py-6 gap-6 z-20">
-        <div class="text-green-500 drop-shadow-md"><i data-lucide="cpu" class="w-6 h-6"></i></div>
-        <nav class="flex flex-col gap-6 w-full items-center">
-            <button onclick="tab('console')" id="d-console" class="nav-btn active p-2 hover:text-white" title="Console"><i data-lucide="terminal-square" class="w-5 h-5"></i></button>
-            <button onclick="tab('files')" id="d-files" class="nav-btn p-2 hover:text-white" title="Files"><i data-lucide="folder-tree" class="w-5 h-5"></i></button>
-            <button onclick="tab('plugins')" id="d-plugins" class="nav-btn p-2 hover:text-white" title="Plugins"><i data-lucide="package-search" class="w-5 h-5"></i></button>
-        </nav>
-    </aside>
 
-    <main class="flex-1 flex flex-col relative bg-[#050505] overflow-hidden">
-        
-        <!-- CONSOLE -->
-        <div id="tab-console" class="tab-pane active p-2 sm:p-4">
-            <div class="flex-1 bg-black border border-[#1a1a1a] rounded-lg flex flex-col overflow-hidden shadow-2xl">
-                <div class="h-8 bg-[#0a0a0a] border-b border-[#1a1a1a] flex items-center px-3 gap-2">
-                    <div class="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_6px_#22c55e]"></div><span class="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Live Stream</span>
-                </div>
-                <div id="logs" class="flex-1 overflow-y-auto p-3 text-zinc-300 scroll-smooth"></div>
-                <div class="p-2 bg-[#0a0a0a] border-t border-[#1a1a1a] flex gap-2">
-                    <input id="cmd" type="text" class="flex-1 bg-[#050505] border border-[#222] rounded text-xs px-3 py-2 font-mono text-green-400 placeholder-zinc-700" placeholder="Type a command..." autocomplete="off">
-                    <button onclick="sendCmd()" class="bg-[#1a1a1a] hover:bg-[#222] text-white p-2 rounded border border-[#222]"><i data-lucide="send-horizontal" class="w-4 h-4"></i></button>
-                </div>
-            </div>
-        </div>
+<!-- TOOLBAR -->
+<header class="toolbar">
+  <div class="tl-wrap">
+    <div class="tl tl-r"></div>
+    <div class="tl tl-y"></div>
+    <div class="tl tl-g"></div>
+  </div>
+  <div class="tb-title">
+    <div class="pip" id="pip"></div>
+    <span>Minecraft Panel</span>
+  </div>
+  <div class="tb-actions">
+    <button class="icon-btn" onclick="toggleTheme()" id="theme-btn" title="Toggle theme">
+      <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
+  </div>
+</header>
 
-        <!-- FILES -->
-        <div id="tab-files" class="tab-pane p-2 sm:p-4">
-            <div class="flex-1 bg-black border border-[#1a1a1a] rounded-lg flex flex-col overflow-hidden">
-                <div class="p-3 border-b border-[#1a1a1a] flex items-center gap-2 bg-[#0a0a0a]">
-                    <div id="path-bread" class="flex-1 flex items-center gap-1 text-[11px] font-mono overflow-x-auto whitespace-nowrap mask-linear"></div>
-                    <button onclick="document.getElementById('up').click()" class="hover:text-white"><i data-lucide="upload-cloud" class="w-4 h-4"></i></button>
-                    <button onclick="refreshFiles()" class="hover:text-white"><i data-lucide="refresh-cw" class="w-4 h-4"></i></button>
-                    <input type="file" id="up" class="hidden" onchange="uploadFile()">
-                </div>
-                <div id="file-list" class="flex-1 overflow-y-auto"></div>
-            </div>
-        </div>
+<div class="app-body">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sb-label">Navigation</div>
+    <button class="nav-item active" id="d-console" onclick="tab('console')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+      Console
+    </button>
+    <button class="nav-item" id="d-files" onclick="tab('files')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      Files
+    </button>
+    <button class="nav-item" id="d-plugins" onclick="tab('plugins')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/></svg>
+      Plugins
+    </button>
+  </aside>
 
-        <!-- PLUGINS (BROWSER & INSTALLED) -->
-        <div id="tab-plugins" class="tab-pane p-2 sm:p-4">
-            <div class="flex-1 bg-black border border-[#1a1a1a] rounded-lg flex flex-col overflow-hidden">
-                <!-- Plugin Header/Controls -->
-                <div class="p-3 border-b border-[#1a1a1a] bg-[#0a0a0a] flex flex-col gap-3 shrink-0">
-                    <div class="flex gap-2 w-full">
-                        <div class="flex bg-[#111] rounded border border-[#222] p-0.5 shrink-0">
-                            <button onclick="setPView('browser')" id="pv-browser" class="px-3 py-1 text-[10px] font-bold rounded bg-[#222] text-white transition-all">Browse</button>
-                            <button onclick="setPView('installed')" id="pv-installed" class="px-3 py-1 text-[10px] font-bold rounded text-zinc-500 hover:text-white transition-all">Installed</button>
-                        </div>
-                        <div class="h-full w-[1px] bg-[#222] mx-1"></div>
-                        <!-- Configuration -->
-                        <select id="pl-loader" class="bg-[#111] border border-[#222] text-zinc-300 text-[10px] px-2 rounded focus:ring-0 w-24">
-                            <option value="paper">Paper/Spigot</option>
-                            <option value="purpur">Purpur</option>
-                            <option value="velocity">Velocity</option>
-                            <option value="waterfall">Waterfall</option>
-                            <option value="fabric">Fabric</option>
-                        </select>
-                        <input type="text" id="pl-version" value="1.20.4" class="bg-[#111] border border-[#222] text-zinc-300 text-[10px] px-2 rounded w-16 text-center" placeholder="Ver">
-                    </div>
-                    <!-- Search Bar -->
-                    <div id="search-box" class="flex gap-2">
-                        <div class="relative flex-1">
-                            <i data-lucide="search" class="absolute left-2.5 top-2 w-3.5 h-3.5 text-zinc-500"></i>
-                            <input type="text" id="pl-query" class="w-full bg-[#050505] border border-[#222] rounded text-[11px] pl-8 pr-3 py-1.5 text-white placeholder-zinc-700" placeholder="Search Modrinth (e.g. LuckPerms)..." onkeydown="if(event.key==='Enter') searchPlugins()">
-                        </div>
-                        <button onclick="searchPlugins()" class="bg-green-600 hover:bg-green-500 text-black px-3 py-1 rounded text-[10px] font-bold">Search</button>
-                    </div>
-                </div>
-                
-                <!-- Results Area -->
-                <div id="pl-list" class="flex-1 overflow-y-auto p-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 content-start">
-                    <div class="col-span-full flex flex-col items-center justify-center text-zinc-600 h-64 gap-2">
-                        <i data-lucide="search-code" class="w-8 h-8 opacity-20"></i>
-                        <span class="text-xs">Select loader & version, then search.</span>
-                    </div>
-                </div>
-            </div>
+  <main class="main">
+    <!-- CONSOLE -->
+    <div class="tab-pane active" id="tab-console">
+      <div class="win">
+        <div class="win-bar">
+          <div class="live-dot"></div>
+          <div class="win-bar-title">Live Console</div>
+          <button class="icon-btn" onclick="clearLog()" title="Clear log">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
         </div>
-    </main>
+        <div class="log-out" id="logs"></div>
+        <div class="cmd-bar">
+          <span class="cmd-prompt">→</span>
+          <input class="cmd-in" id="cmd" type="text" placeholder="Type a command…" autocomplete="off"
+                 onkeydown="if(event.key==='Enter')sendCmd()">
+          <button class="send-btn" onclick="sendCmd()" title="Send">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FILES -->
+    <div class="tab-pane" id="tab-files">
+      <div class="win" id="drop-zone">
+        <div class="drag-ov" id="drag-ov">Drop file to upload</div>
+        <div class="fm-bar">
+          <div class="breadcrumb" id="path-bread"></div>
+          <button class="icon-btn" onclick="document.getElementById('up-in').click()" title="Upload">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+          </button>
+          <button class="icon-btn" onclick="refreshFiles()" title="Refresh">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          </button>
+          <input type="file" id="up-in" style="display:none" onchange="uploadFile()">
+        </div>
+        <div class="file-list" id="file-list"></div>
+      </div>
+    </div>
+
+    <!-- PLUGINS -->
+    <div class="tab-pane" id="tab-plugins">
+      <div class="win">
+        <div class="pl-hd">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <div class="segment">
+              <button class="seg-btn active" id="pv-browser" onclick="setPView('browser')">Browse</button>
+              <button class="seg-btn" id="pv-installed" onclick="setPView('installed')">Installed</button>
+            </div>
+            <div class="pl-row" id="pl-ctrl">
+              <select class="sf-sel" id="pl-loader">
+                <option value="paper">Paper / Spigot</option>
+                <option value="purpur">Purpur</option>
+                <option value="velocity">Velocity</option>
+                <option value="waterfall">Waterfall</option>
+                <option value="fabric">Fabric</option>
+              </select>
+              <input class="sf-ver" id="pl-ver" type="text" value="1.20.4" placeholder="1.x.x">
+            </div>
+          </div>
+          <div id="srch-row" style="display:flex;gap:8px">
+            <div class="srch-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input class="sf-srch" id="pl-q" type="text" placeholder="Search Modrinth (e.g. LuckPerms)…"
+                     onkeydown="if(event.key==='Enter')searchPlugins()">
+            </div>
+            <button class="srch-btn" onclick="searchPlugins()">Search</button>
+          </div>
+        </div>
+        <div class="pl-grid" id="pl-list">
+          <div class="pl-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <p>Select loader &amp; version, then search.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
 </div>
 
 <!-- MOBILE NAV -->
-<nav class="sm:hidden flex bg-black border-t border-[#1a1a1a] pb-[env(safe-area-inset-bottom,0)]">
-    <button onclick="tab('console')" id="m-console" class="nav-btn active flex-1 py-3 flex justify-center text-zinc-500"><i data-lucide="terminal-square" class="w-5 h-5"></i></button>
-    <button onclick="tab('files')" id="m-files" class="nav-btn flex-1 py-3 flex justify-center text-zinc-500"><i data-lucide="folder-tree" class="w-5 h-5"></i></button>
-    <button onclick="tab('plugins')" id="m-plugins" class="nav-btn flex-1 py-3 flex justify-center text-zinc-500"><i data-lucide="package-search" class="w-5 h-5"></i></button>
+<nav class="mob-nav">
+  <div class="mob-inner">
+    <button class="mob-btn active" id="m-console" onclick="tab('console')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+      Console
+    </button>
+    <button class="mob-btn" id="m-files" onclick="tab('files')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      Files
+    </button>
+    <button class="mob-btn" id="m-plugins" onclick="tab('plugins')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><path d="M7 7h.01"/></svg>
+      Plugins
+    </button>
+  </div>
 </nav>
 
-<!-- TOASTS -->
-<div id="toasts" class="fixed bottom-16 sm:bottom-6 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+<div class="toasts" id="toasts"></div>
 
 <script>
-lucide.createIcons();
-let curPath = "", curView = "browser";
+// ── THEME ──────────────────────────────────────────
+const html=document.documentElement;
+const MOON=`<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`;
+const SUN=`<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>`;
+function applyTheme(t){
+  html.dataset.theme=t;
+  localStorage.setItem('mc-theme',t);
+  document.querySelector('#theme-icon').innerHTML=t==='dark'?MOON:SUN;
+}
+function toggleTheme(){applyTheme(html.dataset.theme==='dark'?'light':'dark');}
+(function(){
+  const s=localStorage.getItem('mc-theme');
+  if(s)applyTheme(s);
+  else if(window.matchMedia&&window.matchMedia('(prefers-color-scheme:light)').matches)applyTheme('light');
+  else applyTheme('dark');
+})();
 
-// --- UTILS ---
-const toast = (msg, err=false) => {
-    const d = document.createElement("div");
-    d.className = `flex items-center gap-3 px-4 py-3 rounded-lg border shadow-xl backdrop-blur-md transform transition-all duration-300 translate-y-8 opacity-0 pointer-events-auto ${err ? 'bg-red-950/90 border-red-900 text-red-200' : 'bg-zinc-900/90 border-zinc-800 text-zinc-200'}`;
-    d.innerHTML = `<i data-lucide="${err?'alert-circle':'check-circle-2'}" class="w-4 h-4 ${err?'text-red-500':'text-green-500'}"></i><span class="text-[11px] font-medium">${msg}</span>`;
-    document.getElementById("toasts").appendChild(d);
-    lucide.createIcons();
-    requestAnimationFrame(() => d.classList.remove("translate-y-8", "opacity-0"));
-    setTimeout(() => { d.classList.add("translate-y-4", "opacity-0"); setTimeout(() => d.remove(), 300); }, 3000);
-};
-
-function tab(id) {
-    document.querySelectorAll(".tab-pane").forEach(e => e.classList.remove("active"));
-    document.querySelectorAll(".nav-btn").forEach(e => e.classList.remove("active"));
-    document.getElementById("tab-" + id).classList.add("active");
-    if(document.getElementById("d-" + id)) document.getElementById("d-" + id).classList.add("active");
-    if(document.getElementById("m-" + id)) document.getElementById("m-" + id).classList.add("active");
-    if(id === "files" && !curPath) refreshFiles();
-    if(id === "plugins" && curView === "installed") loadInstalled();
+// ── TOAST ──────────────────────────────────────────
+function toast(msg,err=false){
+  const c=document.getElementById('toasts');
+  const d=document.createElement('div');d.className='toast';
+  const col=err?'var(--red)':'var(--acc)';
+  const ic=err
+    ?`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`
+    :`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+  d.innerHTML=ic+`<span>${msg}</span>`;
+  c.appendChild(d);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>d.classList.add('show')));
+  setTimeout(()=>{d.classList.remove('show');setTimeout(()=>d.remove(),350);},3000);
 }
 
-// --- CONSOLE ---
-const logs = document.getElementById("logs");
-const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
-ws.onmessage = e => {
-    const l = document.createElement("div"); l.className = "log-line";
-    // Basic ANSI color parsing
-    l.innerHTML = e.data.replace(/</g, "&lt;").replace(/\x1b\[31m/g, '<span class="text-red-400">').replace(/\x1b\[32m/g, '<span class="text-green-400">').replace(/\x1b\[33m/g, '<span class="text-yellow-400">').replace(/\x1b\[36m/g, '<span class="text-cyan-400">').replace(/\x1b\[0m/g, '</span>');
-    logs.appendChild(l);
-    if(logs.children.length > 300) logs.removeChild(logs.firstChild);
-    if(logs.scrollHeight - logs.scrollTop < logs.clientHeight + 50) logs.scrollTop = logs.scrollHeight;
-};
-function sendCmd() {
-    const i = document.getElementById("cmd"); if(!i.value.trim()) return;
-    ws.send(i.value); i.value = "";
+// ── TABS ────────────────────────────────────────────
+let curTab='console';
+function tab(id){
+  curTab=id;
+  document.querySelectorAll('.tab-pane').forEach(e=>e.classList.remove('active'));
+  document.querySelectorAll('.nav-item,.mob-btn').forEach(e=>e.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  ['d-','m-'].forEach(p=>{const el=document.getElementById(p+id);if(el)el.classList.add('active');});
+  if(id==='files'&&!curPath)refreshFiles();
+  if(id==='plugins'&&curView==='installed')loadInstalled();
 }
 
-// --- FILES ---
-async function refreshFiles(p = curPath) {
-    curPath = p;
-    document.getElementById("path-bread").innerHTML = `<button onclick="refreshFiles('')" class="hover:text-green-400"><i data-lucide="home" class="w-3 h-3"></i></button>` + p.split("/").filter(Boolean).map((x,i,a) => `<span class="opacity-25">/</span><button onclick="refreshFiles('${a.slice(0,i+1).join("/")}')" class="hover:text-white">${x}</button>`).join("");
-    lucide.createIcons();
-    const l = document.getElementById("file-list"); l.innerHTML = `<div class="p-4 flex justify-center"><div class="loader"></div></div>`;
-    try {
-        const r = await fetch(`/api/fs/list?path=${encodeURIComponent(p)}`);
-        const d = await r.json();
-        l.innerHTML = "";
-        if(p) d.unshift({name:"..", is_dir:true, parent:true});
-        if(d.length === 0) l.innerHTML = `<div class="p-8 text-center text-xs text-zinc-600">Empty Directory</div>`;
-        d.forEach(f => {
-            const row = document.createElement("div");
-            row.className = "flex items-center gap-3 p-2 border-b border-[#111] hover:bg-[#111] cursor-pointer group";
-            if(f.parent) {
-                row.onclick = () => refreshFiles(p.split("/").slice(0,-1).join("/"));
-                row.innerHTML = `<i data-lucide="corner-left-up" class="w-4 h-4 text-zinc-500"></i><span class="text-xs text-zinc-500">Back</span>`;
-            } else {
-                row.onclick = () => f.is_dir ? refreshFiles((p?p+"/":"")+f.name) : null;
-                row.innerHTML = `
-                    <i data-lucide="${f.is_dir?'folder':'file'}" class="w-4 h-4 ${f.is_dir?'text-green-500':'text-zinc-500'}"></i>
-                    <span class="flex-1 text-xs font-mono text-zinc-300 truncate">${f.name}</span>
-                    <button onclick="event.stopPropagation(); delFile('${(p?p+"/":"")+f.name}')" class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 transition-opacity"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
-                `;
-            }
-            l.appendChild(row);
-        });
-        lucide.createIcons();
-    } catch(e) { toast("Failed to load files", true); }
-}
-async function uploadFile() {
-    const f = document.getElementById("up").files[0]; if(!f) return;
-    const fd = new FormData(); fd.append("path", curPath); fd.append("file", f);
-    toast("Uploading...");
-    if((await fetch("/api/fs/upload", {method:"POST", body:fd})).ok) { toast("Uploaded"); refreshFiles(); } else toast("Upload failed", true);
-}
-async function delFile(p) {
-    if(!confirm("Delete " + p + "?")) return;
-    const fd = new FormData(); fd.append("path", p);
-    if((await fetch("/api/fs/delete", {method:"POST", body:fd})).ok) { toast("Deleted"); refreshFiles(); }
-}
+// ── CONSOLE ─────────────────────────────────────────
+const logs=document.getElementById('logs');
+let ws,wsRetries=0;
 
-// --- PLUGINS (MODRINTH) ---
-function setPView(v) {
-    curView = v;
-    document.getElementById("pv-browser").className = `px-3 py-1 text-[10px] font-bold rounded transition-all ${v==='browser'?'bg-[#222] text-white':'text-zinc-500 hover:text-white'}`;
-    document.getElementById("pv-installed").className = `px-3 py-1 text-[10px] font-bold rounded transition-all ${v==='installed'?'bg-[#222] text-white':'text-zinc-500 hover:text-white'}`;
-    document.getElementById("search-box").style.display = v === 'browser' ? 'flex' : 'none';
-    if(v === 'browser') {
-        document.getElementById("pl-list").innerHTML = `<div class="col-span-full flex flex-col items-center justify-center text-zinc-600 h-64 gap-2"><i data-lucide="search" class="w-8 h-8 opacity-20"></i><span class="text-xs">Ready to search.</span></div>`;
-        lucide.createIcons();
-    } else loadInstalled();
-}
-
-async function searchPlugins() {
-    const q = document.getElementById("pl-query").value.trim();
-    if(!q) return;
-    const list = document.getElementById("pl-list");
-    list.innerHTML = `<div class="col-span-full flex justify-center py-10"><div class="loader"></div></div>`;
-    
-    // We map user selection to generic facets for broader results, then filter versions strictly on install click
-    try {
-        const res = await fetch(`https://api.modrinth.com/v2/search?query=${encodeURIComponent(q)}&facets=[["project_type:plugin"]]&limit=20`);
-        const data = await res.json();
-        list.innerHTML = "";
-        
-        if(data.hits.length === 0) {
-            list.innerHTML = `<div class="col-span-full text-center text-xs text-zinc-500 py-8">No results found on Modrinth.</div>`;
-            return;
-        }
-
-        data.hits.forEach(p => {
-            const card = document.createElement("div");
-            card.className = "bg-[#080808] border border-[#1a1a1a] rounded p-3 flex flex-col gap-2 hover:border-[#333] transition-colors";
-            card.innerHTML = `
-                <div class="flex gap-3">
-                    <img src="${p.icon_url || 'https://cdn.modrinth.com/assets/unknown_icon.png'}" class="w-8 h-8 rounded bg-[#111]" onerror="this.src='https://placehold.co/32x32/111/444?text=?'">
-                    <div class="flex-1 min-w-0">
-                        <div class="flex justify-between items-start">
-                            <h3 class="text-xs font-bold text-zinc-200 truncate pr-2" title="${p.title}">${p.title}</h3>
-                            <span class="text-[9px] bg-[#111] text-zinc-500 px-1 rounded border border-[#222]">${p.downloads.toLocaleString()} dl</span>
-                        </div>
-                        <p class="text-[10px] text-zinc-500 line-clamp-2 leading-tight mt-0.5">${p.description}</p>
-                    </div>
-                </div>
-                <div class="mt-auto pt-2 border-t border-[#1a1a1a]">
-                    <button onclick="resolveInstall('${p.project_id}', '${p.title.replace(/'/g, "")}')" id="btn-${p.project_id}" class="w-full bg-[#111] hover:bg-green-600 hover:text-black text-zinc-400 text-[10px] font-bold py-1.5 rounded transition-colors flex items-center justify-center gap-1">
-                        <i data-lucide="download" class="w-3 h-3"></i> Install
-                    </button>
-                </div>
-            `;
-            list.appendChild(card);
-        });
-        lucide.createIcons();
-    } catch(e) {
-        list.innerHTML = `<div class="col-span-full text-center text-xs text-red-400 py-8">Error connecting to Modrinth API.</div>`;
+function ansiToHtml(raw){
+  let s=raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // \x1b is the ESC character in JS — matches actual ANSI escape sequences
+  s=s.replace(/\x1b\[(\d+(?:;\d+)*)m/g,(_,codes)=>{
+    let o='';
+    for(const n of codes.split(';').map(Number)){
+      if(n===0)o+='</span>';
+      else if(n===1)o+='<span style="font-weight:700">';
+      else if(n===2)o+='<span style="opacity:.55">';
+      else if(n===3)o+='<span style="font-style:italic">';
+      else if(n===30)o+='<span style="color:#555">';
+      else if(n===31)o+='<span style="color:#FF6B6B">';
+      else if(n===32)o+='<span style="color:#51CF66">';
+      else if(n===33)o+='<span style="color:#FFD43B">';
+      else if(n===34)o+='<span style="color:#74C0FC">';
+      else if(n===35)o+='<span style="color:#CC5DE8">';
+      else if(n===36)o+='<span style="color:#22D3EE">';
+      else if(n===37)o+='<span style="color:#F8F9FA">';
+      else if(n===90)o+='<span style="color:#666">';
     }
+    return o;
+  });
+  s=s.replace(/\x1b\[[^m]*m/g,'');  // strip unknown sequences
+  return s;
 }
 
-async function resolveInstall(id, name) {
-    const loaderRaw = document.getElementById("pl-loader").value;
-    const version = document.getElementById("pl-version").value.trim();
-    const btn = document.getElementById(`btn-${id}`);
-    
-    // UI Loading State
-    const ogHtml = btn.innerHTML;
-    btn.innerHTML = `<div class="loader w-3 h-3 border-zinc-400 border-t-transparent"></div> Checking...`;
-    btn.disabled = true;
+function appendLog(text){
+  const l=document.createElement('div');l.className='log-line';
+  l.innerHTML=ansiToHtml(text);
+  logs.appendChild(l);
+  if(logs.children.length>500)logs.removeChild(logs.firstChild);
+  if(logs.scrollHeight-logs.scrollTop<logs.clientHeight+80)logs.scrollTop=logs.scrollHeight;
+}
+function clearLog(){logs.innerHTML='';}
 
-    // Smart Loader Mapping: Purpur/Waterfall usually support Spigot/Paper plugins
-    let loaders = [loaderRaw];
-    if(loaderRaw === 'purpur') loaders = ['paper', 'spigot', 'purpur'];
-    if(loaderRaw === 'paper') loaders = ['paper', 'spigot'];
-    if(loaderRaw === 'waterfall') loaders = ['bungeecord', 'waterfall'];
+function connectWS(){
+  const proto=location.protocol==='https:'?'wss:':'ws:';
+  ws=new WebSocket(`${proto}//${location.host}/ws`);
+  ws.onopen=()=>{
+    wsRetries=0;
+    document.getElementById('pip').style.background='var(--acc)';
+    document.getElementById('pip').style.boxShadow='0 0 6px var(--acc)';
+  };
+  ws.onmessage=e=>appendLog(e.data);
+  ws.onclose=()=>{
+    document.getElementById('pip').style.background='var(--red)';
+    document.getElementById('pip').style.boxShadow='none';
+    const delay=Math.min(1000*(2**wsRetries),30000);wsRetries++;
+    appendLog(`\x1b[33m[Panel] Disconnected — reconnecting in ${Math.round(delay/1000)}s\x1b[0m`);
+    setTimeout(connectWS,delay);
+  };
+  ws.onerror=()=>ws.close();
+}
+connectWS();
 
-    try {
-        // Construct array string for API: '["paper", "spigot"]'
-        const lQuery = JSON.stringify(loaders);
-        const vQuery = JSON.stringify([version]);
-        
-        const res = await fetch(`https://api.modrinth.com/v2/project/${id}/version?loaders=${lQuery}&game_versions=${vQuery}`);
-        const versions = await res.json();
+function sendCmd(){
+  const i=document.getElementById('cmd'),v=i.value.trim();if(!v)return;
+  if(ws&&ws.readyState===WebSocket.OPEN){ws.send(v);i.value='';}
+  else toast('Not connected to server',true);
+}
 
-        if(!versions.length) {
-            toast(`No version found for ${loaderRaw} ${version}`, true);
-            btn.innerHTML = `<span class="text-red-400">Incompatible</span>`;
-            setTimeout(() => { btn.innerHTML = ogHtml; btn.disabled = false; }, 2000);
-            return;
-        }
+// ── FILES ───────────────────────────────────────────
+let curPath='';
+function buildBread(p){
+  const el=document.getElementById('path-bread');
+  const parts=p.split('/').filter(Boolean);
+  let h=`<button onclick="refreshFiles('')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></button>`;
+  parts.forEach((x,i,a)=>{
+    const p2=a.slice(0,i+1).join('/');
+    h+=`<span class="sep">›</span><button onclick="refreshFiles('${p2}')">${x}</button>`;
+  });
+  el.innerHTML=h;
+}
+async function refreshFiles(p=curPath){
+  curPath=p;buildBread(p);
+  const l=document.getElementById('file-list');
+  l.innerHTML=`<div style="display:flex;justify-content:center;padding:32px"><div class="spin"></div></div>`;
+  try{
+    const r=await fetch(`/api/fs/list?path=${encodeURIComponent(p)}`);
+    const d=await r.json();l.innerHTML='';
+    if(p)d.unshift({name:'..',is_dir:true,parent:true});
+    if(!d.length){l.innerHTML=`<div style="padding:48px;text-align:center;font-size:13px;color:var(--t3)">Empty directory</div>`;return;}
+    d.forEach(f=>{
+      const row=document.createElement('div');row.className='file-row';
+      const fp=(p?p+'/':'')+f.name;
+      if(f.parent){
+        row.onclick=()=>refreshFiles(p.split('/').slice(0,-1).join('/'));
+        row.innerHTML=`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--t3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg><span class="file-name" style="color:var(--t2)">Back</span>`;
+      }else{
+        row.onclick=()=>f.is_dir?refreshFiles(fp):null;
+        const ico=f.is_dir
+          ?`<svg width="16" height="16" viewBox="0 0 24 24" fill="var(--acc)" stroke="none" opacity=".85"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`
+          :`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--t3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+        row.innerHTML=`${ico}<span class="file-name">${f.name}</span>
+          <button class="file-del" onclick="event.stopPropagation();delFile('${fp}')" title="Delete">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          </button>`;
+      }
+      l.appendChild(row);
+    });
+  }catch(e){toast('Failed to load files',true);}
+}
 
-        // Install the first match
-        const file = versions[0].files.find(f => f.primary) || versions[0].files[0];
-        btn.innerHTML = `Downloading...`;
-        
-        const fd = new FormData();
-        fd.append("url", file.url);
-        fd.append("filename", file.filename);
-        fd.append("project_id", id);
-        fd.append("version_id", versions[0].id);
-        fd.append("name", name);
+async function uploadFile(){
+  const f=document.getElementById('up-in').files[0];if(!f)return;
+  const fd=new FormData();fd.append('path',curPath);fd.append('file',f);
+  toast('Uploading…');
+  const r=await fetch('/api/fs/upload',{method:'POST',body:fd});
+  r.ok?(toast('Uploaded ✓'),refreshFiles()):toast('Upload failed',true);
+  document.getElementById('up-in').value='';
+}
+async function delFile(p){
+  if(!confirm('Delete '+p+'?'))return;
+  const fd=new FormData();fd.append('path',p);
+  const r=await fetch('/api/fs/delete',{method:'POST',body:fd});
+  r.ok?(toast('Deleted'),refreshFiles()):toast('Delete failed',true);
+}
 
-        const dl = await fetch("/api/plugins/install", {method: "POST", body: fd});
-        if(dl.ok) {
-            toast(`Installed ${name}`);
-            btn.className = "w-full bg-green-600 text-black text-[10px] font-bold py-1.5 rounded flex items-center justify-center gap-1 cursor-default";
-            btn.innerHTML = `<i data-lucide="check" class="w-3 h-3"></i> Installed`;
-            lucide.createIcons();
-        } else {
-            throw new Error("Server error");
-        }
-    } catch(e) {
-        toast("Installation failed", true);
-        btn.innerHTML = `<span class="text-red-400">Error</span>`;
-        setTimeout(() => { btn.innerHTML = ogHtml; btn.disabled = false; }, 2000);
+// Drag & drop
+const dz=document.getElementById('drop-zone'),dov=document.getElementById('drag-ov');
+if(dz){
+  dz.addEventListener('dragover',e=>{e.preventDefault();dov.classList.add('on');});
+  dz.addEventListener('dragleave',()=>dov.classList.remove('on'));
+  dz.addEventListener('drop',async e=>{
+    e.preventDefault();dov.classList.remove('on');
+    const file=e.dataTransfer.files[0];if(!file)return;
+    const fd=new FormData();fd.append('path',curPath);fd.append('file',file);
+    toast('Uploading…');
+    const r=await fetch('/api/fs/upload',{method:'POST',body:fd});
+    r.ok?(toast('Uploaded ✓'),refreshFiles()):toast('Upload failed',true);
+  });
+}
+
+// ── PLUGINS ─────────────────────────────────────────
+let curView='browser';
+function setPView(v){
+  curView=v;
+  document.getElementById('pv-browser').className='seg-btn'+(v==='browser'?' active':'');
+  document.getElementById('pv-installed').className='seg-btn'+(v==='installed'?' active':'');
+  document.getElementById('srch-row').style.display=v==='browser'?'flex':'none';
+  document.getElementById('pl-ctrl').style.display=v==='browser'?'flex':'none';
+  if(v==='browser'){
+    document.getElementById('pl-list').innerHTML=`<div class="pl-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <p>Ready to search.</p></div>`;
+  }else loadInstalled();
+}
+
+async function searchPlugins(){
+  const q=document.getElementById('pl-q').value.trim();if(!q)return;
+  const list=document.getElementById('pl-list');
+  list.innerHTML=`<div style="grid-column:1/-1;display:flex;justify-content:center;padding:40px"><div class="spin"></div></div>`;
+  try{
+    const res=await fetch(`https://api.modrinth.com/v2/search?query=${encodeURIComponent(q)}&facets=[["project_type:plugin"]]&limit=20`);
+    const data=await res.json();list.innerHTML='';
+    if(!data.hits.length){list.innerHTML=`<div class="pl-empty"><p>No results on Modrinth.</p></div>`;return;}
+    data.hits.forEach(p=>{
+      const card=document.createElement('div');card.className='pl-card';
+      card.innerHTML=`
+        <div class="pl-head">
+          <img class="pl-ico" src="${p.icon_url||''}" onerror="this.src='https://placehold.co/36x36/3A3A3C/888?text=?'" alt="">
+          <div class="pl-meta">
+            <div style="display:flex;justify-content:space-between;gap:4px;align-items:flex-start">
+              <div class="pl-name" title="${p.title}">${p.title}</div>
+              <div class="pl-dl">${p.downloads.toLocaleString()} dl</div>
+            </div>
+            <div class="pl-desc">${p.description}</div>
+          </div>
+        </div>
+        <button class="inst-btn" id="btn-${p.project_id}"
+                onclick="resolveInstall('${p.project_id}','${p.title.replace(/'/g,'')}')">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Install
+        </button>`;
+      list.appendChild(card);
+    });
+  }catch(e){list.innerHTML=`<div class="pl-empty" style="color:var(--red)"><p>Error connecting to Modrinth.</p></div>`;}
+}
+
+async function resolveInstall(id,name){
+  const loaderRaw=document.getElementById('pl-loader').value;
+  const version=document.getElementById('pl-ver').value.trim();
+  const btn=document.getElementById('btn-'+id);
+  const ogHtml=btn.innerHTML;
+  btn.innerHTML=`<div class="spin" style="border-top-color:#fff;width:13px;height:13px"></div> Checking…`;
+  btn.disabled=true;
+  let loaders=[loaderRaw];
+  if(loaderRaw==='purpur')loaders=['paper','spigot','purpur'];
+  if(loaderRaw==='paper')loaders=['paper','spigot'];
+  if(loaderRaw==='waterfall')loaders=['bungeecord','waterfall'];
+  try{
+    const res=await fetch(`https://api.modrinth.com/v2/project/${id}/version?loaders=${JSON.stringify(loaders)}&game_versions=${JSON.stringify([version])}`);
+    const versions=await res.json();
+    if(!versions.length){toast(`No version for ${loaderRaw} ${version}`,true);setTimeout(()=>{btn.innerHTML=ogHtml;btn.disabled=false;},2000);return;}
+    const file=versions[0].files.find(f=>f.primary)||versions[0].files[0];
+    btn.innerHTML=`Downloading…`;
+    const fd=new FormData();
+    fd.append('url',file.url);fd.append('filename',file.filename);
+    fd.append('project_id',id);fd.append('version_id',versions[0].id);fd.append('name',name);
+    const dl=await fetch('/api/plugins/install',{method:'POST',body:fd});
+    if(dl.ok){
+      toast(`Installed ${name} ✓`);
+      btn.style.cssText='background:var(--s3);color:var(--acc)';
+      btn.innerHTML=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Installed`;
+    }else throw new Error();
+  }catch(e){toast('Installation failed',true);setTimeout(()=>{btn.innerHTML=ogHtml;btn.disabled=false;},2000);}
+}
+
+async function loadInstalled(){
+  const l=document.getElementById('pl-list');
+  l.innerHTML=`<div style="grid-column:1/-1;display:flex;justify-content:center;padding:40px"><div class="spin"></div></div>`;
+  try{
+    const r=await fetch('/api/fs/read?path=plugins/plugins.json');if(!r.ok)throw new Error();
+    const data=await r.json();l.innerHTML='';
+    if(!Object.keys(data).length){l.innerHTML=`<div class="pl-empty"><p>No plugins installed via Panel.</p></div>`;return;}
+    for(const[pid,d]of Object.entries(data)){
+      const card=document.createElement('div');card.className='pl-card';
+      card.innerHTML=`
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div class="pl-name">${d.name}</div>
+          <button onclick="delFile('plugins/${d.filename}')" style="background:none;border:none;color:var(--t3);cursor:pointer;padding:2px;border-radius:4px" title="Remove">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          </button>
+        </div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--t3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.filename}</div>
+        <div style="background:var(--s3);color:var(--t2);font-size:11px;padding:5px 10px;border-radius:var(--r-sm);text-align:center">Installed</div>`;
+      l.appendChild(card);
     }
+  }catch(e){l.innerHTML=`<div class="pl-empty"><p>No plugins.json record found.</p></div>`;}
 }
-
-async function loadInstalled() {
-    const l = document.getElementById("pl-list");
-    l.innerHTML = `<div class="col-span-full flex justify-center py-10"><div class="loader"></div></div>`;
-    try {
-        const r = await fetch("/api/fs/read?path=plugins/plugins.json");
-        if(!r.ok) throw new Error();
-        const json = await r.json();
-        l.innerHTML = "";
-        
-        if(Object.keys(json).length === 0) {
-            l.innerHTML = `<div class="col-span-full text-center text-xs text-zinc-500 py-8">No plugins installed via Panel.</div>`;
-            return;
-        }
-
-        for(const [pid, data] of Object.entries(json)) {
-            const card = document.createElement("div");
-            card.className = "bg-[#080808] border border-[#1a1a1a] rounded p-3 flex flex-col gap-2";
-            card.innerHTML = `
-                <div class="flex justify-between items-start">
-                    <h3 class="text-xs font-bold text-zinc-200">${data.name}</h3>
-                    <button onclick="delFile('plugins/${data.filename}')" class="text-zinc-600 hover:text-red-500"><i data-lucide="trash" class="w-3 h-3"></i></button>
-                </div>
-                <div class="text-[10px] text-zinc-500 font-mono truncate">${data.filename}</div>
-                <div class="mt-auto flex gap-2">
-                    <button class="flex-1 bg-[#111] text-zinc-500 text-[9px] py-1 rounded cursor-not-allowed">Installed</button>
-                    <!-- Future: Check update logic here -->
-                </div>
-            `;
-            l.appendChild(card);
-        }
-        lucide.createIcons();
-    } catch(e) {
-        l.innerHTML = `<div class="col-span-full text-center text-xs text-zinc-500 py-8">No plugins.json record found.</div>`;
-    }
-}
-</script></body></html>
+</script>
+</body>
+</html>
 """
 
-# --- BACKEND LOGIC ---
+# ─────────────────────────────────────────────
+# BACKEND
+# ─────────────────────────────────────────────
 def get_path(p: str):
     safe = os.path.abspath(os.path.join(BASE_DIR, (p or "").strip("/")))
     if not safe.startswith(BASE_DIR): raise HTTPException(403, "Access Denied")
@@ -382,22 +694,45 @@ async def stream_output(pipe):
 async def boot_mc():
     global mc_process
     jar = os.path.join(BASE_DIR, "purpur.jar")
+
+    # ── Wait for background world download (started by start.sh) ──────────
+    # start.sh runs: (python3 download_world.py; touch /tmp/world_dl_done) &
+    # Without this wait, Minecraft would start before the world is copied in.
+    if os.environ.get("FOLDER_URL"):
+        output_history.append("\u23f3 [Panel] World download is running in background, waiting\u2026")
+        for i in range(600):          # up to 10 min
+            if os.path.exists("/tmp/world_dl_done"):
+                output_history.append("\u2705 [Panel] World download finished! Starting Minecraft\u2026")
+                break
+            if i > 0 and i % 30 == 0:
+                output_history.append(f"\u23f3 [Panel] Still waiting\u2026 ({i}s elapsed)")
+            await asyncio.sleep(1)
+        else:
+            output_history.append("\u26a0 [Panel] Download wait timed out. Starting Minecraft anyway\u2026")
+    else:
+        open("/tmp/world_dl_done", "w").close()   # mark done immediately
+
     if not os.path.exists(jar):
-        output_history.append("\x1b[33m[System] purpur.jar not found in /app. Please upload it via Files tab.\x1b[0m")
+        output_history.append("\u26a0 [Panel] purpur.jar not found in /app \u2014 upload it via the Files tab.")
         return
-    
-    # Low resource flags
+
+    output_history.append("\U0001f680 [Panel] Starting Minecraft server\u2026")
     mc_process = await asyncio.create_subprocess_exec(
-        "java", "-Xmx8G", "-Xms6G", "-Dfile.encoding=UTF-8", "-jar", jar, "--nogui",
-        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, cwd=BASE_DIR
+        "java", "-Xmx4G", "-Xms1G",
+        "-Dfile.encoding=UTF-8",
+        "-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled",
+        "-XX:MaxGCPauseMillis=200",
+        "-jar", jar, "--nogui",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=BASE_DIR
     )
     asyncio.create_task(stream_output(mc_process.stdout))
 
-@app.on_event("startup")
-async def start():
-    os.makedirs(PLUGINS_DIR, exist_ok=True)
-    asyncio.create_task(boot_mc())
-
+# ─────────────────────────────────────────────
+# ROUTES
+# ─────────────────────────────────────────────
 @app.get("/")
 def index(): return HTMLResponse(HTML_CONTENT)
 
@@ -405,35 +740,37 @@ def index(): return HTMLResponse(HTML_CONTENT)
 async def ws_end(ws: WebSocket):
     await ws.accept()
     connected_clients.add(ws)
-    for l in output_history: await ws.send_text(l)
+    for line in output_history: await ws.send_text(line)
     try:
         while True:
             cmd = await ws.receive_text()
             if mc_process and mc_process.stdin:
                 mc_process.stdin.write((cmd + "\n").encode())
                 await mc_process.stdin.drain()
-    except: connected_clients.remove(ws)
+    except:
+        connected_clients.discard(ws)
 
-# FS API
+@app.get("/api/status")
+def api_status():
+    return {"running": mc_process is not None and mc_process.returncode is None}
+
 @app.get("/api/fs/list")
-def list_fs(path: str=""):
+def list_fs(path: str = ""):
     t = get_path(path)
     if not os.path.exists(t): return []
-    res = []
-    for x in os.listdir(t):
-        fp = os.path.join(t, x)
-        res.append({"name": x, "is_dir": os.path.isdir(fp)})
+    res = [{"name": x, "is_dir": os.path.isdir(os.path.join(t, x))} for x in os.listdir(t)]
     return sorted(res, key=lambda k: (not k["is_dir"], k["name"].lower()))
 
 @app.post("/api/fs/upload")
-async def upload(path: str=Form(""), file: UploadFile=File(...)):
+async def upload(path: str = Form(""), file: UploadFile = File(...)):
     t = get_path(path)
     os.makedirs(t, exist_ok=True)
-    with open(os.path.join(t, file.filename), "wb") as f: shutil.copyfileobj(file.file, f)
+    with open(os.path.join(t, file.filename), "wb") as f:
+        shutil.copyfileobj(file.file, f)
     return "ok"
 
 @app.post("/api/fs/delete")
-def delete(path: str=Form(...)):
+def delete(path: str = Form(...)):
     t = get_path(path)
     if os.path.isdir(t): shutil.rmtree(t)
     else: os.remove(t)
@@ -442,38 +779,41 @@ def delete(path: str=Form(...)):
 @app.get("/api/fs/read")
 def read(path: str):
     try:
-        with open(get_path(path), "r", encoding="utf-8") as f: return json.load(f) if path.endswith(".json") else Response(f.read())
-    except: raise HTTPException(404)
+        with open(get_path(path), "r", encoding="utf-8") as f:
+            return json.load(f) if path.endswith(".json") else Response(f.read())
+    except:
+        raise HTTPException(404)
 
-# PLUGIN INSTALLER
 @app.post("/api/plugins/install")
-def install_pl(url: str=Form(...), filename: str=Form(...), project_id: str=Form(...), version_id: str=Form(...), name: str=Form(...)):
+def install_pl(
+    url: str = Form(...), filename: str = Form(...),
+    project_id: str = Form(...), version_id: str = Form(...),
+    name: str = Form(...)
+):
     try:
-        # Download
         dest = os.path.join(PLUGINS_DIR, filename)
-        req = urllib.request.Request(url, headers={'User-Agent': 'HF-Panel/1.0'})
-        with urllib.request.urlopen(req) as r, open(dest, 'wb') as f:
+        req = urllib.request.Request(url, headers={"User-Agent": "HF-Panel/1.0"})
+        with urllib.request.urlopen(req) as r, open(dest, "wb") as f:
             shutil.copyfileobj(r, f)
-        
-        # Update JSON Record
         j_path = os.path.join(PLUGINS_DIR, "plugins.json")
         data = {}
         if os.path.exists(j_path):
             try:
-                with open(j_path, 'r') as f: data = json.load(f)
+                with open(j_path, "r") as f: data = json.load(f)
             except: pass
-        
         data[project_id] = {
-            "name": name,
-            "filename": filename,
-            "version_id": version_id,
-            "installed_at": time.time()
+            "name": name, "filename": filename,
+            "version_id": version_id, "installed_at": time.time()
         }
-        
-        with open(j_path, 'w') as f: json.dump(data, f, indent=2)
+        with open(j_path, "w") as f: json.dump(data, f, indent=2)
         return "ok"
     except Exception as e:
         raise HTTPException(500, str(e))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 7860)), log_level="error")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.environ.get("PORT", 7860)),
+        log_level="error"
+    )
