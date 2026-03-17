@@ -3,32 +3,28 @@ set -e
 
 echo "==== Server Initialization ===="
 
-# --- Data Setup ---
-echo ">> Loading world data..."
-if command -v python3 >/dev/null 2>&1 && [ -f "download_world.py" ]; then
-    python3 download_world.py || echo "⚠️  Using default world"
-fi
+# --- Server Configuration (runs instantly, no download here) ---
+echo ">> Writing eula.txt and server.properties..."
+echo "eula=true" > /app/eula.txt
 
-# --- Server Configuration ---
-echo ">> Setting up server environment..."
-echo "eula=true" > eula.txt
-
-if [ ! -f "server.properties" ]; then
-    echo "Generating default server.properties..."
-    echo "server-port=25565" > server.properties
+if [ ! -f "/app/server.properties" ]; then
+    echo "server-port=25565" > /app/server.properties
+    echo "query.port=25565"  >> /app/server.properties
+    echo "online-mode=false" >> /app/server.properties
 else
-    sed -i "s/^server-port=.*/server-port=25565/" server.properties
-    sed -i "s/^query.port=.*/query.port=25565/" server.properties
+    sed -i "s/^server-port=.*/server-port=25565/"   /app/server.properties
+    sed -i "s/^query\.port=.*/query.port=25565/"    /app/server.properties
 fi
 
 chmod -R 777 /app 2>/dev/null || true
 
-# --- Start the Web UI & Panel ---
+# KEY FIX: Start the web panel FIRST so HuggingFace health-check passes.
+# World download + Minecraft boot now happen as background async tasks
+# inside panel.py's lifespan — the HTTP server is ready on port 7860
+# before any slow download begins.
 echo "=========================================================="
-echo ">> Starting Professional Panel on Port 7860..."
-echo ">> Minecraft output will be suppressed here to stop spam."
-echo ">> Open the Hugging Face Space URL in your browser to access the Console and File Manager!"
+echo ">> Starting Panel on port 7860 (world download will run"
+echo "   in background after the server is already listening)."
 echo "=========================================================="
 
-# Run the python panel script
-exec python3 panel.py
+exec python3 /app/panel.py
