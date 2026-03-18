@@ -1,7 +1,7 @@
-import os,asyncio,collections,shutil,urllib.request,json,logging,hashlib,time
+import os,asyncio,collections,shutil,urllib.request,json,logging,re,time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI,WebSocket,Form,UploadFile,File,HTTPException,Query
-from fastapi.responses import HTMLResponse,FileResponse,PlainTextResponse
+from fastapi.responses import HTMLResponse,FileResponse,JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -23,6 +23,9 @@ connected_clients:set=set()
 player_sessions={}
 ip_tracker=collections.defaultdict(list)
 server_start_time=None
+server_version="1.21.x"
+detected_server_ip=""
+current_players=set()
 
 # ── Config Management ──────────────────────────────────────────────
 def load_config()->dict:
@@ -46,35 +49,55 @@ def save_history(h:dict):
     with open(HISTORY_FILE,'w')as f:json.dump(h,f,indent=2)
 
 def log_player(player:str,action:str,ip:str=""):
+    global current_players
     h=load_history()
     ts=time.strftime("%Y-%m-%d %H:%M:%S")
     if player:
         h["playerLogs"].append({"player":player,"action":action,"ip":ip,"time":ts})
-        if player not in player_sessions:player_sessions[player]={"join_time":ts,"ips":[],"kills":0,"deaths":0}
+        if player not in player_sessions:player_sessions[player]={"join_time":ts,"ips":[],"kills":0,"deaths":0,"play_time":0}
         if ip and ip not in player_sessions[player]["ips"]:player_sessions[player]["ips"].append(ip)
         if ip:ip_tracker[ip].append({"player":player,"action":action,"time":ts})
+        if action=="join":current_players.add(player)
+        elif action=="leave":current_players.discard(player)
     h["playerLogs"]=h["playerLogs"][-500:]
     save_history(h)
 
 def parse_console_line(line:str):
-    global mc_process
+    global mc_process,server_version,detected_server_ip
+    # Extract server version
+    ver_match=re.search(r'Starting Minecraft server version ([\d.]+)',line)
+    if ver_match:server_version=ver_match.group(1)
+    paper_match=re.search(r'Paper ([\d.]+)',line)
+    if paper_match:server_version=f"Paper {paper_match.group(1)}"
+    # Extract public IP from connect plugin
+    ip_match=re.search(r'public address: (.+)',line)
+    if ip_match:detected_server_ip=ip_match.group(1).strip()
+    # Extract player join with IP
+    join_match=re.search(r'(\w+)\[/([\d.]+)',line)
+    if join_match and "logged in" in line:
+        player=join_match.group(1)
+        ip=join_match.group(2)
+        log_player(player,"join",ip)
+        return
     # Detect player joins
     if" joined the game"in line:
-        m=line.split("]: ")[-1].replace(" joined the game","")
-        log_player(m,"join")
+        m=re.search(r'^.*?\]: (.+?) joined',line)
+        if m:log_player(m.group(1),"join")
     elif" left the game"in line:
-        m=line.split("]: ")[-1].replace(" left the game","")
-        log_player(m,"leave")
-    elif" has made the advancement"in line or" has completed the challenge"in line:pass
-    elif"[Server]/"in line or">"in line:
-        cmd=line.split(">",1)[-1].strip()if">"in line else line
-        if cmd and not cmd.startswith("["):log_command(cmd)
+        m=re.search(r'^.*?\]: (.+?) left',line)
+        if m:log_player(m.group(1),"leave")
+    elif"] Killed "in line or"] was killed"in line.lower():
+        m=re.search(r'^\[.*?\]: \[(.+?): Killed (.+?)\]',line)
+        if m:log_player(m.group(1),"kill")
+    elif" issued server command: /kill"in line:
+        m=re.search(r'^\[.*?\]: (.+?) issued server command: /kill',line)
+        if m and m.group(1) in current_players:
+            if m.group(1) in player_sessions:player_sessions[m.group(1)]["deaths"]+=1
     # Check for empty server to trigger backup
-    if"[Server]/drivebackup backup"not in line and mc_process and mc_process.returncode is None:
-        if" there are 0 players"in line.lower() or"0 players online"in line.lower():
-            cfg=load_config()
-            if cfg.get("backupOnEmpty"):
-                asyncio.create_task(run_backup())
+    if mc_process and mc_process.returncode is None:
+        cfg=load_config()
+        if cfg.get("backupOnEmpty")and" there are 0 players"in line.lower()or"0 players online"in line.lower():
+            asyncio.create_task(run_backup())
 
 async def run_backup():
     global mc_process
@@ -106,7 +129,7 @@ async def stream_output(pipe):
     except:pass
 
 async def boot_mc():
-    global mc_process,server_start_time
+    global mc_process,server_start_time,current_players
     if mc_process and mc_process.returncode is None:return"Already running"
     jar=os.path.join(BASE_DIR,"purpur.jar")
     if not os.path.exists(jar):
@@ -116,6 +139,7 @@ async def boot_mc():
     mc_process=await asyncio.create_subprocess_exec("java","-Xmx4G","-Xms1G","-Dfile.encoding=UTF-8","-XX:+UseG1GC","-jar",jar,"--nogui",stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.STDOUT,cwd=BASE_DIR)
     asyncio.create_task(stream_output(mc_process.stdout))
     server_start_time=time.time()
+    current_players=set()
     return"Starting"
 
 async def startup_sequence():
@@ -178,12 +202,12 @@ async def ws_endpoint(ws:WebSocket,password:str=Query(alias="pass",default="")):
 @app.post("/api/mc/control")
 async def mc_control(action:str=Form(...)):
     global mc_process
-    if action=="start":result=await boot_mc();return PlainTextResponse(result)
+    if action=="start":result=await boot_mc();return JSONResponse({"status":result})
     elif action=="stop":
         if mc_process and mc_process.returncode is None and mc_process.stdin:
             mc_process.stdin.write(b"stop\n");await mc_process.stdin.drain()
-            return PlainTextResponse("Stop command sent")
-        return PlainTextResponse("Not running")
+            return JSONResponse({"status":"Stop command sent"})
+        return JSONResponse({"status":"Not running"})
     elif action=="restart":
         if mc_process and mc_process.returncode is None and mc_process.stdin:
             mc_process.stdin.write(b"stop\n");await mc_process.stdin.drain()
@@ -193,58 +217,63 @@ async def mc_control(action:str=Form(...)):
                 if mc_process.returncode is not None:break
             await asyncio.sleep(2)
         result=await boot_mc()
-        return PlainTextResponse(f"Restart: {result}")
+        return JSONResponse({"status":f"Restart: {result}"})
     elif action=="kill":
         if mc_process and mc_process.returncode is None:
-            mc_process.kill();return PlainTextResponse("Killed")
-        return PlainTextResponse("Not running")
+            mc_process.kill();return JSONResponse({"status":"Killed"})
+        return JSONResponse({"status":"Not running"})
     elif action=="status":
         running=mc_process and mc_process.returncode is None
-        player_count=0
-        for line in list(output_history)[-50:]:
-            if" joined the game"in line:player_count+=1
-            elif" left the game"in line:player_count=max(0,player_count-1)
         uptime=int(time.time()-server_start_time)if server_start_time else 0
-        return{"running":running,"players":player_count,"uptime":uptime,"version":"1.21.4"}
-    return PlainTextResponse("Unknown action")
+        cfg=load_config()
+        display_ip=cfg.get("serverIP")or detected_server_ip or"---"
+        return JSONResponse({
+            "running":running,
+            "players":len(current_players),
+            "playerList":list(current_players),
+            "uptime":uptime,
+            "version":server_version,
+            "serverIP":display_ip
+        })
+    return JSONResponse({"status":"Unknown action"})
 
 # ── Routes: Config ──────────────────────────────────────────────────
 @app.get("/api/config")
-def get_config():return load_config()
+def get_config():return JSONResponse(load_config())
 
 @app.post("/api/config")
 def update_config(cfg:dict=Form(...)):
     c=load_config()
     c.update(cfg)
     save_config(c)
-    return{"status":"ok"}
+    return JSONResponse({"status":"ok"})
 
 # ── Routes: History ─────────────────────────────────────────────────
 @app.get("/api/history")
 def get_history():
     h=load_history()
     cfg=load_config()
-    h["serverIP"]=cfg.get("serverIP","")
-    return h
+    h["serverIP"]=cfg.get("serverIP")or detected_server_ip
+    return JSONResponse(h)
 
 @app.get("/api/players/sessions")
 def get_player_sessions():
-    return player_sessions
+    return JSONResponse(player_sessions)
 
 @app.get("/api/ip/tracker")
 def get_ip_tracker():
-    return dict(ip_tracker)
+    return JSONResponse(dict(ip_tracker))
 
 # ── Routes: File System ────────────────────────────────────────────
 @app.get("/api/fs/disk")
 def fs_disk():
     t,u,f=shutil.disk_usage(BASE_DIR)
-    return{"total":t,"used":u,"free":f}
+    return JSONResponse({"total":t,"used":u,"free":f})
 
 @app.get("/api/fs/list")
 def list_fs(path:str=""):
     t=get_path(path)
-    if not os.path.isdir(t):return[]
+    if not os.path.isdir(t):return JSONResponse([])
     items=[]
     try:
         for name in os.listdir(t):
@@ -256,13 +285,13 @@ def list_fs(path:str=""):
                 except OSError:pass
             items.append({"name":name,"is_dir":is_dir,"size":size})
     except PermissionError:pass
-    return sorted(items,key=lambda k:(not k["is_dir"],k["name"].lower()))
+    return JSONResponse(sorted(items,key=lambda k:(not k["is_dir"],k["name"].lower())))
 
 @app.post("/api/fs/upload")
 async def upload(path:str=Form(""),file:UploadFile=File(...)):
     dest=os.path.join(get_path(path),file.filename)
     with open(dest,"wb")as f:shutil.copyfileobj(file.file,f)
-    return PlainTextResponse("ok")
+    return JSONResponse({"status":"ok"})
 
 @app.post("/api/fs/delete")
 def delete_fs(path:str=Form(...)):
@@ -270,7 +299,7 @@ def delete_fs(path:str=Form(...)):
     if not os.path.exists(t):raise HTTPException(404,"Not found")
     if os.path.isdir(t):shutil.rmtree(t)
     else:os.remove(t)
-    return PlainTextResponse("ok")
+    return JSONResponse({"status":"ok"})
 
 @app.post("/api/fs/rename")
 def rename_fs(path:str=Form(...),new_name:str=Form(...)):
@@ -279,53 +308,39 @@ def rename_fs(path:str=Form(...),new_name:str=Form(...)):
     parent=os.path.dirname(t)
     dest=os.path.join(parent,new_name)
     os.rename(t,dest)
-    return PlainTextResponse("ok")
+    return JSONResponse({"status":"ok"})
 
 @app.post("/api/fs/new-folder")
 def new_folder(path:str=Form(...),name:str=Form(...)):
     dest=os.path.join(get_path(path),name)
     os.makedirs(dest,exist_ok=True)
-    return PlainTextResponse("ok")
+    return JSONResponse({"status":"ok"})
 
 @app.post("/api/fs/new-file")
 def new_file(path:str=Form(...),name:str=Form(...)):
     dest=os.path.join(get_path(path),name)
     if os.path.exists(dest):raise HTTPException(409,"File exists")
     with open(dest,"w")as f:f.write("")
-    return PlainTextResponse("ok")
+    return JSONResponse({"status":"ok"})
 
 @app.get("/api/fs/read")
 def read_fs(path:str):
     t=get_path(path)
     if not os.path.isfile(t):raise HTTPException(404,"Not found")
     try:
-        with open(t,"r","utf-8",errors="replace")as f:return PlainTextResponse(f.read())
+        with open(t,"r","utf-8",errors="replace")as f:return JSONResponse({"content":f.read()})
     except Exception:raise HTTPException(500,"Cannot read file")
 
 @app.post("/api/fs/write")
 def write_fs(path:str=Form(...),content:str=Form(...)):
     with open(get_path(path),"w","utf-8")as f:f.write(content)
-    return PlainTextResponse("ok")
+    return JSONResponse({"status":"ok"})
 
 @app.get("/api/fs/download")
 def download_fs(path:str):
     t=get_path(path)
     if not os.path.isfile(t):raise HTTPException(404,"Not found")
     return FileResponse(t,filename=os.path.basename(t))
-
-@app.get("/api/fs/search")
-def search_fs(query:str=""):
-    results=[]
-    def search(p,depth=0):
-        if depth>5:return
-        try:
-            for name in os.listdir(p):
-                fp=os.path.join(p,name)
-                if query.lower()in name.lower():results.append(fp.replace(BASE_DIR+"/",""))
-                if os.path.isdir(fp):search(fp,depth+1)
-        except:pass
-    search(BASE_DIR)
-    return results[:100]
 
 # ── Routes: Plugins ────────────────────────────────────────────────
 @app.post("/api/plugins/install")
@@ -335,7 +350,7 @@ def install_plugin(url:str=Form(...),filename:str=Form(...),project_id:str=Form(
         req=urllib.request.Request(url,headers={"User-Agent":"MCPanel/2.0"})
         with urllib.request.urlopen(req,timeout=60)as r,open(dest,"wb")as f:shutil.copyfileobj(r,f)
     except Exception as e:raise HTTPException(500,f"Download failed: {e}")
-    return PlainTextResponse("ok")
+    return JSONResponse({"status":"ok"})
 
 @app.get("/api/plugins/list")
 def list_plugins():
@@ -345,12 +360,12 @@ def list_plugins():
             if f.endswith(".jar"):
                 fp=os.path.join(PLUGINS_DIR,f)
                 plugins.append({"name":f,"size":os.path.getsize(fp),"modified":os.path.getmtime(fp)})
-    return plugins
+    return JSONResponse(plugins)
 
 @app.post("/api/plugins/delete")
 def delete_plugin(filename:str=Form(...)):
     fp=os.path.join(PLUGINS_DIR,filename)
     if os.path.exists(fp):os.remove(fp)
-    return PlainTextResponse("ok")
+    return JSONResponse({"status":"ok"})
 
 if __name__=="__main__":uvicorn.run(app,host="0.0.0.0",port=int(os.environ.get("PORT",7860)))
