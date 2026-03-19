@@ -1,536 +1,623 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MC_SYS // TERMINAL</title>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>⛏ MC Panel</title>
 <style>
-  :root {
-    --bg: #000000; --bg-panel: #0a0a0a; --bg-hover: #161616;
-    --fg: #e0e0e0; --fg-dim: #666666; 
-    --border: #333333; --border-focus: #00ff00;
-    --acc: #00ff00; --acc-dim: rgba(0,255,0,0.1);
-    --err: #ff003c; --err-dim: rgba(255,0,60,0.1);
-    --font: 'JetBrains Mono', monospace;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 12px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; text-transform: uppercase; }
-  
-  /* Utils */
-  button, input, select, textarea { font-family: inherit; font-size: inherit; text-transform: inherit; background: none; color: inherit; border: 1px solid var(--border); outline: none; transition: border 0.1s; }
-  button { cursor: pointer; padding: 6px 12px; background: var(--bg-panel); }
-  button:hover { background: var(--acc-dim); border-color: var(--acc); color: var(--acc); }
-  button.danger:hover { background: var(--err-dim); border-color: var(--err); color: var(--err); }
-  input, select { padding: 6px 10px; background: var(--bg); width: 100%; }
-  input:focus, textarea:focus { border-color: var(--acc); }
-  ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-track { background: var(--bg); border-left: 1px solid var(--border); }
-  ::-webkit-scrollbar-thumb { background: var(--border); }
-  ::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
-
-  /* Layout */
-  #login { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 100; }
-  .login-box { border: 1px solid var(--border); padding: 24px; width: 300px; background: var(--bg-panel); }
-  
-  header { border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; background: var(--bg-panel); flex-shrink: 0; }
-  .status-bar { display: flex; gap: 20px; color: var(--fg-dim); }
-  .status-item span { color: var(--acc); font-weight: 700; }
-  
-  .layout { display: flex; flex: 1; overflow: hidden; }
-  nav { width: 180px; border-right: 1px solid var(--border); background: var(--bg-panel); display: flex; flex-direction: column; }
-  .nav-btn { border: none; border-bottom: 1px solid var(--border); text-align: left; padding: 12px 16px; background: transparent; }
-  .nav-btn.active { color: var(--acc); border-left: 4px solid var(--acc); padding-left: 12px; background: var(--acc-dim); }
-  
-  main { flex: 1; position: relative; display: flex; flex-direction: column; }
-  .tab { display: none; flex: 1; flex-direction: column; overflow: hidden; padding: 16px; }
-  .tab.active { display: flex; }
-
-  /* Console */
-  #term { flex: 1; overflow-y: auto; padding: 10px; border: 1px solid var(--border); background: var(--bg); word-wrap: break-word; white-space: pre-wrap; margin-bottom: 10px; }
-  .term-line:hover { background: var(--bg-hover); }
-  .cmd-bar { display: flex; gap: 10px; }
-  
-  /* Tables/Grids */
-  .data-table { width: 100%; border-collapse: collapse; }
-  .data-table th, .data-table td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
-  .data-table th { background: var(--bg-panel); color: var(--fg-dim); }
-  .data-table tr:hover { background: var(--bg-hover); }
-  
-  /* Player Analytics */
-  .player-card { border: 1px solid var(--border); display: flex; gap: 16px; padding: 12px; background: var(--bg-panel); align-items: center; margin-bottom: 10px; }
-  .player-head { width: 48px; height: 48px; border: 1px solid var(--border); image-rendering: pixelated; }
-  .player-info { flex: 1; }
-  .player-name { font-size: 14px; color: var(--acc); font-weight: 700; margin-bottom: 4px; }
-  .player-meta { color: var(--fg-dim); font-size: 10px; }
-  .alts-warn { color: var(--err); font-weight: 700; margin-top: 4px; display: none; }
-  
-  /* File Manager */
-  .toolbar { display: flex; gap: 10px; margin-bottom: 10px; }
-  .file-list { flex: 1; overflow-y: auto; border: 1px solid var(--border); }
-  .file-row { display: flex; padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; align-items: center; justify-content: space-between; }
-  .file-row:hover { background: var(--bg-hover); }
-  .file-row-actions { opacity: 0; display: flex; gap: 6px; }
-  .file-row:hover .file-row-actions { opacity: 1; }
-  
-  /* Editor */
-  #editor-container { display: none; position: absolute; inset: 0; background: var(--bg); flex-direction: column; z-index: 10; border-left: 1px solid var(--border); }
-  #editor { flex: 1; background: var(--bg); border: none; padding: 16px; color: var(--fg); resize: none; tab-size: 4; }
-  
-  /* Toasts */
-  #toasts { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 999; }
-  .toast { padding: 10px 16px; border: 1px solid var(--acc); background: var(--bg-panel); color: var(--acc); }
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0b0b10;--s1:#111118;--s2:#18182a;--bd:#1f1f32;--ac:#7c3aed;--cy:#22d3ee;
+  --tx:#d4dce8;--mt:#4a5568;--gr:#22c55e;--rd:#ef4444;--yw:#f59e0b;--or:#f97316;
+  --fn:ui-monospace,'Cascadia Code','JetBrains Mono',monospace}
+body{background:var(--bg);color:var(--tx);font:12px/1.5 var(--fn);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+button{background:var(--s2);color:var(--tx);border:1px solid var(--bd);padding:3px 10px;cursor:pointer;border-radius:3px;font:inherit;white-space:nowrap}
+button:hover{background:var(--ac);border-color:var(--ac)}
+input,textarea,select{background:var(--s2);color:var(--tx);border:1px solid var(--bd);padding:4px 8px;font:inherit;border-radius:3px;outline:none}
+input:focus,textarea:focus{border-color:var(--ac)}
+#auth{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);z-index:99}
+.ab{display:flex;flex-direction:column;gap:10px;width:260px}
+.ab h1{font-size:22px;text-align:center;color:var(--cy);margin-bottom:6px}
+#auth-err{color:var(--rd);font-size:11px;min-height:14px;text-align:center}
+#app{display:none;flex-direction:column;height:100vh}
+header{display:flex;align-items:center;gap:10px;padding:5px 12px;background:var(--s1);border-bottom:1px solid var(--bd);flex-shrink:0;min-height:36px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--mt);flex-shrink:0}
+.dot.on{background:var(--gr);box-shadow:0 0 7px var(--gr)}
+.dot.off{background:var(--rd)}
+#s-ip{color:var(--cy);font-weight:700;font-size:13px}
+#s-players,#s-ver{color:var(--mt);font-size:11px}
+#s-autobackup{color:var(--yw);font-size:10px;display:none}
+.hdr-r{margin-left:auto;display:flex;gap:4px}
+.hdr-r button{padding:3px 8px;font-size:11px}
+nav{display:flex;background:var(--s1);border-bottom:1px solid var(--bd);flex-shrink:0}
+.tab{border:none;border-bottom:2px solid transparent;border-radius:0;padding:7px 15px;background:transparent;color:var(--mt);font-size:12px}
+.tab.active{color:var(--tx);border-bottom-color:var(--ac)}
+.tab:hover:not(.active){background:var(--s2);color:var(--tx)}
+.panel{display:none;flex-direction:column;flex:1;min-height:0}
+.panel.active{display:flex}
+#log{flex:1;overflow-y:auto;padding:8px 10px;line-height:1.4;font-size:11px}
+.ll{white-space:pre-wrap;word-break:break-all;padding:1px 0}
+.ll.e{color:var(--rd)}.ll.w{color:var(--yw)}.ll.j{color:var(--gr)}.ll.l{color:var(--or)}.ll.p{color:var(--cy)}.ll.c{color:var(--ac)}
+.cr{display:flex;align-items:center;gap:6px;padding:6px 10px;border-top:1px solid var(--bd);background:var(--s1);flex-shrink:0}
+.cr span{color:var(--ac);font-size:14px}
+#cmd{flex:1}
+.tb{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--bd);background:var(--s1);flex-shrink:0;flex-wrap:wrap}
+#player-wrap{flex:1;overflow:auto;padding:6px}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd);color:var(--mt);position:sticky;top:0;background:var(--bg);font-weight:600}
+td{padding:4px 8px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:middle}
+.uuid{color:var(--mt);font-size:10px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.or-row td{background:rgba(34,197,94,.04)}
+.flag-alt{color:var(--yw);font-size:10px}
+.flag-on{color:var(--gr);font-size:10px}
+#alt-summary{color:var(--yw);font-size:11px;cursor:pointer}
+#p-search-wrap{display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--bd);background:var(--s1);flex-shrink:0}
+#p-search-wrap input{flex:1}
+#p-results{flex:1;overflow-y:auto;padding:8px;border-bottom:1px solid var(--bd)}
+#p-installed{overflow-y:auto;max-height:200px;padding:6px 10px;background:var(--s1)}
+.pc{display:flex;align-items:center;gap:10px;padding:8px;border:1px solid var(--bd);margin-bottom:6px;border-radius:4px;background:var(--s1)}
+.pc img{width:32px;height:32px;border-radius:3px;object-fit:cover;flex-shrink:0}
+.pi{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.pi strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pi span{color:var(--mt);font-size:10px}
+.inst-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--bd);font-size:11px}
+.inst-row span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#panel-files.active{flex-direction:row}
+#tree-pane{width:240px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--bd);overflow:hidden}
+.tree-tb{display:flex;gap:4px;padding:5px 6px;background:var(--s1);border-bottom:1px solid var(--bd);flex-shrink:0;flex-wrap:wrap}
+.tree-tb button{font-size:11px;padding:2px 7px}
+#file-tree{flex:1;overflow-y:auto;padding:4px}
+.fi{display:flex;align-items:center;gap:5px;padding:3px 7px;border-radius:3px;cursor:pointer;font-size:11px;white-space:nowrap;overflow:hidden;position:relative}
+.fi:hover{background:var(--s2)}
+.fi.dir{color:var(--cy)}
+.fi span.fn{flex:1;overflow:hidden;text-overflow:ellipsis}
+.fi .fsz{color:var(--mt);font-size:10px;flex-shrink:0}
+.fi .fdel{display:none;color:var(--rd);font-size:10px;flex-shrink:0;padding:0 2px}
+.fi:hover .fdel{display:block}
+#ed-pane{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.ed-tb{display:flex;align-items:center;gap:8px;padding:5px 10px;background:var(--s1);border-bottom:1px solid var(--bd);flex-shrink:0;font-size:11px}
+#ed-path{flex:1;color:var(--mt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ed-area{flex:1;resize:none;border:none;border-radius:0;padding:10px;font-size:12px;line-height:1.7;tab-size:2;background:var(--bg);color:var(--tx)}
+#panel-settings{overflow-y:auto}
+.sf{max-width:400px;padding:20px;display:flex;flex-direction:column;gap:14px}
+.sf label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--mt)}
+.sf label input{color:var(--tx);font-size:12px}
+.sf h3{font-size:11px;color:var(--mt);margin-top:4px}
+hr{border:none;border-top:1px solid var(--bd)}
+.dbt{height:6px;background:var(--s2);border-radius:3px;overflow:hidden;margin-top:4px}
+.dbf{height:100%;background:var(--ac);border-radius:3px;transition:width .3s}
+.dbi{font-size:11px;color:var(--mt);margin-top:2px}
+.muted{color:var(--mt);font-size:11px;padding:8px}
+.err-msg{color:var(--rd);font-size:11px;padding:8px}
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px}
 </style>
 </head>
 <body>
 
-<div id="login">
-  <div class="login-box">
-    <h2 style="margin-bottom: 16px; color: var(--acc);">AUTH_REQ</h2>
-    <input type="password" id="pass" placeholder="PASSWORD" style="margin-bottom: 10px;" autofocus>
-    <button onclick="auth()" style="width: 100%;">INITIALIZE</button>
+<div id="auth">
+  <div class="ab">
+    <h1>⛏ MC Panel</h1>
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="login-btn">Connect</button>
+    <span id="auth-err"></span>
   </div>
 </div>
 
-<header>
-  <div>MC_SYS // DASHBOARD</div>
-  <div class="status-bar">
-    <div class="status-item">IP: <span id="hdr-ip">0.0.0.0</span></div>
-    <div class="status-item">PLAYERS: <span id="hdr-players">0</span></div>
-    <div class="status-item">STATUS: <span id="hdr-status" style="color:var(--err)">OFFLINE</span></div>
-  </div>
-</header>
-
-<div class="layout">
+<div id="app">
+  <header>
+    <div class="dot" id="s-dot"></div>
+    <span id="s-ip">—</span>
+    <span id="s-players">0/?</span>
+    <span id="s-ver">—</span>
+    <span id="s-autobackup">⏱ backup in <span id="s-bkt">—</span></span>
+    <div class="hdr-r">
+      <button onclick="mcCtrl('start')">▶ Start</button>
+      <button onclick="mcCtrl('stop')">■ Stop</button>
+      <button onclick="mcCtrl('restart')">↺ Restart</button>
+      <button onclick="mcCtrl('kill')" style="color:var(--rd)">✕ Kill</button>
+    </div>
+  </header>
   <nav>
-    <button class="nav-btn active" onclick="nav('console')">CONSOLE</button>
-    <button class="nav-btn" onclick="nav('players')">ANALYTICS</button>
-    <button class="nav-btn" onclick="nav('files')">FILES</button>
-    <button class="nav-btn" onclick="nav('plugins')">PLUGINS</button>
+    <button class="tab active" onclick="switchTab('console',this)">Console</button>
+    <button class="tab" onclick="switchTab('players',this)">Players</button>
+    <button class="tab" onclick="switchTab('plugins',this)">Plugins</button>
+    <button class="tab" onclick="switchTab('files',this)">Files</button>
+    <button class="tab" onclick="switchTab('settings',this)">Settings</button>
   </nav>
 
-  <main>
-    <!-- Console -->
-    <div id="tab-console" class="tab active">
-      <div class="toolbar">
-        <button onclick="mc('start')">START</button>
-        <button onclick="mc('stop')">STOP</button>
-        <button onclick="mc('kill')" class="danger">KILL</button>
-        <button onclick="ws.send('list')">SYNC PLAYERS</button>
-      </div>
-      <div id="term"></div>
-      <div class="cmd-bar">
-        <span style="color:var(--acc); padding-top:6px;">></span>
-        <input type="text" id="cmd" placeholder="EXECUTE COMMAND..." autocomplete="off">
-      </div>
-    </div>
+  <div id="panel-console" class="panel active">
+    <div id="log"></div>
+    <div class="cr"><span>›</span><input id="cmd" placeholder="Enter server command…" autocomplete="off"><button onclick="sendCmd()">Send</button></div>
+  </div>
 
-    <!-- Analytics -->
-    <div id="tab-players" class="tab">
-      <div class="toolbar" style="justify-content: space-between;">
-        <div>PLAYER DATABASE // LOCAL CACHE</div>
-        <button onclick="saveConfig()">FORCE SAVE</button>
-      </div>
-      <div id="player-list" style="overflow-y: auto; flex: 1;"></div>
+  <div id="panel-players" class="panel">
+    <div class="tb">
+      <input id="p-filter" placeholder="Search players…" oninput="renderPlayers()" style="width:200px">
+      <span id="alt-summary"></span>
     </div>
+    <div id="player-wrap"><div class="muted">No player data yet.</div></div>
+  </div>
 
-    <!-- Files -->
-    <div id="tab-files" class="tab">
-      <div class="toolbar">
-        <button onclick="loadFiles('..')">UP_DIR</button>
-        <button onclick="newFile(true)">MKDIR</button>
-        <button onclick="newFile(false)">TOUCH</button>
-        <span id="current-path" style="align-self:center; margin-left:10px; color:var(--acc);">/</span>
-      </div>
-      <div class="file-list" id="file-list"></div>
-      
-      <div id="editor-container">
-        <div class="toolbar" style="padding: 10px; border-bottom: 1px solid var(--border); margin: 0; background: var(--bg-panel);">
-          <span id="editor-file" style="align-self: center; color: var(--acc); flex: 1;"></span>
-          <button onclick="saveEditor()">WRITE</button>
-          <button onclick="closeEditor()">CLOSE</button>
-        </div>
-        <textarea id="editor" spellcheck="false"></textarea>
-      </div>
+  <div id="panel-plugins" class="panel">
+    <div id="p-search-wrap">
+      <input id="p-q" placeholder="Search Modrinth for plugins…">
+      <button onclick="pluginSearch()">Search</button>
+      <button onclick="loadInstalled()">↻ Installed</button>
     </div>
+    <div id="p-results"><div class="muted">Search for plugins above.</div></div>
+    <div id="p-installed"></div>
+  </div>
 
-    <!-- Plugins -->
-    <div id="tab-plugins" class="tab">
-      <div class="toolbar">
-        <input type="text" id="pl-search" placeholder="MODRINTH QUERY..." style="width: 300px;">
-        <select id="pl-ver" style="width: 120px;">
-          <option>1.21.1</option><option>1.20.4</option><option>1.19.4</option>
-        </select>
-        <button onclick="searchPlugins()">QUERY</button>
+  <div id="panel-files" class="panel">
+    <div id="tree-pane">
+      <div class="tree-tb">
+        <button onclick="FM.newFile()">+File</button>
+        <button onclick="FM.newFolder()">+Dir</button>
+        <button onclick="document.getElementById('up-input').click()">↑ Upload</button>
+        <input id="up-input" type="file" style="display:none" onchange="FM.upload(this)">
       </div>
-      <div id="pl-list" style="overflow-y: auto; flex: 1;"></div>
+      <div id="file-tree"></div>
     </div>
-  </main>
+    <div id="ed-pane">
+      <div class="ed-tb">
+        <span id="ed-path">No file open</span>
+        <button onclick="FM.save()">Save</button>
+        <button onclick="FM.dl()">↓ Download</button>
+      </div>
+      <textarea id="ed-area" spellcheck="false" placeholder="Open a file from the tree to edit…"></textarea>
+    </div>
+  </div>
+
+  <div id="panel-settings" class="panel">
+    <div class="sf">
+      <label>Server Address (shown in header)<input id="cfg-ip" placeholder="play.example.com"></label>
+      <label>MC Version (for plugin search)<input id="cfg-ver" placeholder="1.21.1"></label>
+      <label>Max Players<input id="cfg-maxp" type="number" min="1" max="1000" value="20"></label>
+      <button onclick="saveSettings()">Save Settings</button>
+      <hr>
+      <h3>Disk Usage</h3>
+      <div class="dbt"><div class="dbf" id="disk-fill" style="width:0%"></div></div>
+      <div class="dbi" id="disk-info">—</div>
+      <hr>
+      <h3>Alt Account Groups</h3>
+      <div id="alt-detail" class="muted">No alt groups detected.</div>
+    </div>
+  </div>
 </div>
 
-<div id="toasts"></div>
-
 <script>
-/* --- Core State & Optimistic Caching --- */
-const API = '';
-let pass = localStorage.getItem('mc_pass') || '';
-let ws = null;
+'use strict';
+// ═══════════════════════════════════════════════
+// CONSTANTS
+// ═══════════════════════════════════════════════
+const MODRINTH_API  = 'https://api.modrinth.com/v2';
+const MINOTAR       = 'https://minotar.net/avatar';
+const EDITOR_DELAY  = 1800;
+const CFG_DELAY     = 3000;
+const POLL_INTERVAL = 30000;
+const BACKUP_DELAY  = 120000; // 2 minutes
 
-// The central Store for state management
-const Store = {
-  players: {}, // UUID -> { name, ips:[], firstJoin, lastSeen, playtime }
-  settings: { ip: "127.0.0.1" },
-  online: new Set()
+// ═══════════════════════════════════════════════
+// CENTRAL STATE
+// ═══════════════════════════════════════════════
+const S = {
+  pass:'', version:'1.21.1', ip:'', maxPlayers:20, online:false,
+  players:{}, currentOnline:new Set(), altGroups:[],
+  ws:null, wsDelay:1000,
+  editorTimer:null, cfgTimer:null,
+  backupTimer:null, backupEnd:null, backupTick:null,
+  curPath:'', editorPath:null,
+  cmdHistory:[], cmdIdx:-1, autoScroll:true,
+  modrinthCache:{},
 };
 
-let saveTimeout = null;
-let backupTimer = null;
-let currentPath = '';
-let editingPath = '';
+// ═══════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════
+const $   = id => document.getElementById(id);
+const fmtB = b => b<1024?b+'B':b<1048576?(b/1024).toFixed(1)+'KB':(b/1048576).toFixed(1)+'MB';
+const fmtMs= ms=>{ const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000); return h?h+'h '+m+'m':m+'m'; };
+const fmtDt= ts=> ts?new Date(ts).toLocaleString():'—';
+const escH = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const parentPath = p => p.split('/').slice(0,-1).join('/');
 
-/* --- Init & Auth --- */
-if(pass) auth();
-async function auth() {
-  const p = pass || document.getElementById('pass').value;
-  try {
-    const r = await fetch(API+'/api/auth', { method: 'POST', body: new URLSearchParams({pass: p}) });
-    if(r.ok) {
-      pass = p; localStorage.setItem('mc_pass', pass);
-      document.getElementById('login').style.display = 'none';
-      init();
-    } else throw new Error();
-  } catch { alert('AUTH FAILED'); }
+function apiFd(path, data) {
+  const fd=new FormData();
+  Object.entries(data).forEach(([k,v])=>fd.append(k,v));
+  return fetch('/api'+path,{method:'POST',body:fd});
 }
+function apiJSON(path){ return fetch('/api'+path).then(r=>r.json()); }
 
-async function init() {
-  connectWS();
-  await loadConfig();
-  document.getElementById('hdr-ip').innerText = Store.settings.ip || '0.0.0.0';
-  loadFiles('');
-  renderPlayers();
-}
-
-/* --- State Management (Config.json) --- */
-async function loadConfig() {
-  try {
-    const r = await fetch(API+'/api/fs/read?path=plugins/config.json');
-    if(r.ok) {
-      const data = JSON.parse(await r.text());
-      Store.players = data.players || {};
-      Store.settings = data.settings || {};
-    }
-  } catch(e) { console.error("Config load failed", e); }
-}
-
-function queueSave() {
-  if(saveTimeout) clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(saveConfig, 2000);
-}
-
-async function saveConfig() {
-  const payload = JSON.stringify({ players: Store.players, settings: Store.settings });
-  await fetch(API+'/api/fs/write', { method:'POST', body: new URLSearchParams({ path: 'plugins/config.json', content: payload }) });
-  toast('CONFIG_SYNCED');
-}
-
-/* --- WebSocket & Log Parsing Engine --- */
-function connectWS() {
-  ws = new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws?pass=${encodeURIComponent(pass)}`);
-  ws.onopen = () => { document.getElementById('hdr-status').innerText = 'ONLINE'; document.getElementById('hdr-status').style.color = 'var(--acc)'; ws.send('list'); };
-  ws.onclose = () => { document.getElementById('hdr-status').innerText = 'OFFLINE'; document.getElementById('hdr-status').style.color = 'var(--err)'; setTimeout(connectWS, 3000); };
-  ws.onmessage = e => parseLog(e.data);
-}
-
-function parseLog(line) {
-  const term = document.getElementById('term');
-  const div = document.createElement('div');
-  div.className = 'term-line'; div.innerText = line;
-  term.appendChild(div);
-  if(term.childNodes.length > 500) term.removeChild(term.firstChild);
-  term.scrollTop = term.scrollHeight;
-
-  // Regex rules for Player Analytics
-  // 1. UUID Mapping
-  let m = line.match(/logged in as (\w+) \(UUID: ([\w-]+)\)/);
-  if(m) updatePlayer(m[2], { name: m[1] });
-
-  // 2. IP Mapping
-  m = line.match(/(\w+)\[\/([0-9\.]+):\d+\] logged in/);
-  if(m) {
-    const name = m[1], ip = m[2];
-    const uuid = Object.keys(Store.players).find(k => Store.players[k].name === name);
-    if(uuid) {
-      if(!Store.players[uuid].ips) Store.players[uuid].ips = [];
-      if(!Store.players[uuid].ips.includes(ip)) Store.players[uuid].ips.push(ip);
-      queueSave();
-    }
-  }
-
-  // 3. Join/Leave & Autonomous Maintenance
-  if(line.includes("joined the game")) {
-    m = line.match(/(\w+) joined the game/);
-    if(m) handleJoin(m[1]);
-  }
-  if(line.includes("left the game") || line.includes("disconnected")) {
-    m = line.match(/(\w+) (left the game|lost connection)/);
-    if(m) handleLeave(m[1]);
-  }
-  
-  // 4. Player List Sync (Response to 'list')
-  m = line.match(/There are (\d+) of a max of \d+ players online:/);
-  if(m) {
-    const count = parseInt(m[1]);
-    document.getElementById('hdr-players').innerText = count;
-    // We don't perfectly sync the Set here to avoid wiping it out if names aren't listed, 
-    // but we know count.
-  }
-}
-
-function updatePlayer(uuid, data) {
-  if(!Store.players[uuid]) {
-    Store.players[uuid] = { name: data.name, ips:[], firstJoin: Date.now(), playtime: 0, lastSeen: Date.now() };
-  } else {
-    Store.players[uuid].name = data.name;
-    Store.players[uuid].lastSeen = Date.now();
-  }
-  queueSave();
-  if(document.getElementById('tab-players').classList.contains('active')) renderPlayers();
-}
-
-function handleJoin(name) {
-  Store.online.add(name);
-  updateOnlineCount();
-  const uuid = Object.keys(Store.players).find(k => Store.players[k].name === name);
-  if(uuid) { Store.players[uuid].lastSeen = Date.now(); queueSave(); }
-}
-
-function handleLeave(name) {
-  Store.online.delete(name);
-  updateOnlineCount();
-  const uuid = Object.keys(Store.players).find(k => Store.players[k].name === name);
-  if(uuid) {
-    // Add rough session time (assume 5 mins if we missed join)
-    Store.players[uuid].playtime += (Date.now() - Store.players[uuid].lastSeen);
-    Store.players[uuid].lastSeen = Date.now();
-    queueSave();
-  }
-}
-
-/* --- Autonomous Maintenance --- */
-function updateOnlineCount() {
-  const count = Store.online.size;
-  document.getElementById('hdr-players').innerText = count;
-  
-  if(count === 0) {
-    // Zero-Player Listener
-    toast('ZERO PLAYERS DETECTED. BACKUP IN 2 MINS.');
-    backupTimer = setTimeout(() => {
-      ws.send("drivebackup backup");
-      toast('AUTONOMOUS BACKUP TRIGGERED');
-    }, 120000);
-  } else {
-    if(backupTimer) {
-      clearTimeout(backupTimer);
-      backupTimer = null;
-      toast('BACKUP ABORTED (PLAYER JOINED)');
-    }
-  }
-}
-
-document.getElementById('cmd').onkeydown = e => {
-  if(e.key === 'Enter' && e.target.value) {
-    ws.send(e.target.value);
-    e.target.value = '';
-  }
+// ═══════════════════════════════════════════════
+// CONFIG STORE  → /plugins/config.json
+// ═══════════════════════════════════════════════
+const Cfg = {
+  async load() {
+    // Instant load from localStorage (optimistic, zero-latency)
+    try{ const c=JSON.parse(localStorage.getItem('mc_cfg')||'{}'); this._apply(c.settings||{}); if(c.players) S.players=c.players; }catch(_){}
+    // Then reconcile with server
+    try{
+      const d=await apiJSON('/config');
+      if(d.settings){ Object.assign(S,{ip:d.settings.ip||S.ip,version:d.settings.version||S.version,maxPlayers:d.settings.maxPlayers||S.maxPlayers}); this._apply(d.settings); }
+      if(d.players) S.players=d.players;
+      localStorage.setItem('mc_cfg',JSON.stringify(d));
+    }catch(_){}
+  },
+  _apply(s){
+    if(s.ip)         { S.ip=s.ip; $('s-ip').textContent=s.ip; }
+    if(s.version)    { S.version=s.version; $('s-ver').textContent=s.version; }
+    if(s.maxPlayers) { S.maxPlayers=s.maxPlayers; }
+    updateCount();
+  },
+  schedule(){ clearTimeout(S.cfgTimer); S.cfgTimer=setTimeout(()=>this.flush(),CFG_DELAY); },
+  async flush(){
+    const p={settings:{ip:S.ip,version:S.version,maxPlayers:S.maxPlayers},players:S.players};
+    localStorage.setItem('mc_cfg',JSON.stringify(p));
+    try{ await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}); }catch(_){}
+  },
 };
 
-/* --- UI Navigation --- */
-function nav(id) {
-  document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(e => e.classList.remove('active'));
-  document.getElementById('tab-'+id).classList.add('active');
-  event.target.classList.add('active');
-  if(id === 'players') renderPlayers();
-}
+// ═══════════════════════════════════════════════
+// LOG PARSER  — regex extraction from stream
+// ═══════════════════════════════════════════════
+const LP = {
+  _uuids:{},  // username → uuid (from Connect plugin pre-announcement)
+  RE:{
+    connectUUID: /\[connect\] Connect tunneled player logged in as (\S+) \(UUID: ([a-f0-9-]{36})\)/,
+    loginIp:     /INFO\]: (\S+)\[\/([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+):\d+\] logged in/,
+    join:        /INFO\]: (\S+) joined the game/,
+    leave:       /INFO\]: (\S+) left the game/,
+    lostConn:    /INFO\]: (\S+) lost connection:/,
+    kicked:      /INFO\]: (\S+) was kicked/,
+    version:     /running (?:Paper|Purpur|Spigot|CraftBukkit) version ([\d.]+(?:\.\d+)?)/,
+    ready:       /Done \([\d.]+s\)!/,
+    pcount:      /There are (\d+) of a max of (\d+) players/,
+  },
+  parse(line){
+    let m;
+    if(m=line.match(this.RE.connectUUID)) this._uuids[m[1]]=m[2];
+    if(m=line.match(this.RE.loginIp))  return{t:'ip',  user:m[1],ip:m[2]};
+    if(m=line.match(this.RE.join))     return{t:'join',user:m[1]};
+    m=line.match(this.RE.leave)||line.match(this.RE.lostConn)||line.match(this.RE.kicked);
+    if(m)                              return{t:'leave',user:m[1]};
+    if(m=line.match(this.RE.version))  return{t:'ver', ver:m[1]};
+    if(line.match(this.RE.ready))      return{t:'ready'};
+    if(m=line.match(this.RE.pcount))   return{t:'pc',  cur:+m[1],max:+m[2]};
+    return null;
+  },
+  uuid(u){ return this._uuids[u]||null; },
+  clearUuid(u){ delete this._uuids[u]; },
+};
 
-function toast(msg) {
-  const d = document.createElement('div'); d.className = 'toast'; d.innerText = msg;
-  document.getElementById('toasts').appendChild(d);
-  setTimeout(() => d.remove(), 3000);
-}
+// ═══════════════════════════════════════════════
+// PLAYER TRACKER  — sessions, IPs, playtime, alts
+// ═══════════════════════════════════════════════
+const PT = {
+  _starts:{},
+  onIP(user,ip){
+    const uuid=LP.uuid(user), key=uuid||user;
+    if(!S.players[key]) S.players[key]={username:user,uuid:uuid||'',ips:[],sessions:[],totalMs:0};
+    const p=S.players[key];
+    p.username=user; if(uuid) p.uuid=uuid;
+    if(ip&&!p.ips.includes(ip)) p.ips.push(ip);
+    Cfg.schedule(); this._alts();
+  },
+  onJoin(user){
+    this._starts[user]=Date.now();
+    S.currentOnline.add(user);
+    ZPW.check(S.currentOnline.size);
+    updateCount();
+  },
+  onLeave(user){
+    LP.clearUuid(user);
+    S.currentOnline.delete(user);
+    ZPW.check(S.currentOnline.size);
+    updateCount();
+    const ts=this._starts[user];
+    if(ts){
+      const ms=Date.now()-ts; delete this._starts[user];
+      const p=Object.values(S.players).find(r=>r.username===user);
+      if(p){
+        p.sessions.push({join:ts,leave:Date.now(),ms});
+        if(p.sessions.length>100) p.sessions=p.sessions.slice(-100);
+        p.totalMs=(p.totalMs||0)+ms;
+        Cfg.schedule();
+      }
+    }
+    if($('panel-players').classList.contains('active')) renderPlayers();
+  },
+  _alts(){
+    const im={};
+    for(const p of Object.values(S.players))
+      for(const ip of(p.ips||[])){ if(!im[ip]) im[ip]=[]; if(!im[ip].includes(p.username)) im[ip].push(p.username); }
+    S.altGroups=Object.entries(im).filter(([,u])=>u.length>1).map(([ip,accounts])=>({ip,accounts}));
+    $('alt-summary').textContent=S.altGroups.length?`⚠ ${S.altGroups.length} alt group(s)`:'';
+  },
+};
 
-async function mc(act) {
-  await fetch(API+'/api/mc/control', { method:'POST', body: new URLSearchParams({action: act}) });
-  toast('SIGNAL SENT: ' + act.toUpperCase());
-}
+// ═══════════════════════════════════════════════
+// ZERO-PLAYER WATCHER  — arm/disarm backup timer
+// ═══════════════════════════════════════════════
+const ZPW = {
+  _prev:0,
+  check(n){
+    if(this._prev>0&&n===0){
+      log('[AutoBackup] Server empty — backup fires in 2 min…','p');
+      S.backupEnd=Date.now()+BACKUP_DELAY;
+      $('s-autobackup').style.display='';
+      S.backupTimer=setTimeout(()=>{ WS.send('drivebackup backup'); log('[AutoBackup] drivebackup backup triggered','p'); this._cancel(); },BACKUP_DELAY);
+      S.backupTick=setInterval(()=>{ const r=Math.max(0,Math.ceil((S.backupEnd-Date.now())/1000)); $('s-bkt').textContent=r+'s'; if(!r)this._cancel(); },1000);
+    } else if(n>0&&S.backupTimer){ log('[AutoBackup] Cancelled — player joined','p'); this._cancel(); }
+    this._prev=n;
+  },
+  _cancel(){ clearTimeout(S.backupTimer); clearInterval(S.backupTick); S.backupTimer=S.backupTick=S.backupEnd=null; $('s-autobackup').style.display='none'; },
+};
 
-/* --- Advanced Player Analytics --- */
-function renderPlayers() {
-  const list = document.getElementById('player-list');
-  list.innerHTML = '';
-  
-  // IP Alt matching logic
-  const ipMap = {};
-  Object.values(Store.players).forEach(p => {
-    (p.ips ||[]).forEach(ip => {
-      if(!ipMap[ip]) ipMap[ip] = [];
-      ipMap[ip].push(p.name);
-    });
-  });
+// ═══════════════════════════════════════════════
+// WEBSOCKET MANAGER
+// ═══════════════════════════════════════════════
+const WS = {
+  connect(){
+    const proto=location.protocol==='https:'?'wss':'ws';
+    S.ws=new WebSocket(`${proto}://${location.host}/ws?pass=${encodeURIComponent(S.pass)}`);
+    S.ws.onopen=()=>{ S.wsDelay=1000; setDot(true); log('[Panel] Console connected.','p'); };
+    S.ws.onmessage=e=>processLine(e.data);
+    S.ws.onerror=()=>{};
+    S.ws.onclose=()=>{ setDot(false); log('[Panel] WS lost. Retry in '+(S.wsDelay/1000).toFixed(1)+'s…','p'); setTimeout(()=>WS.connect(),S.wsDelay); S.wsDelay=Math.min(S.wsDelay*1.6,15000); };
+  },
+  send(cmd){ if(S.ws&&S.ws.readyState===1){ S.ws.send(cmd); return true; } return false; },
+};
 
-  Object.entries(Store.players).sort((a,b) => b[1].lastSeen - a[1].lastSeen).forEach(([uuid, p]) => {
-    // Check alts
-    let alts = new Set();
-    (p.ips || []).forEach(ip => {
-      ipMap[ip].forEach(n => { if(n !== p.name) alts.add(n); });
-    });
-
-    const card = document.createElement('div');
-    card.className = 'player-card';
-    const hours = (p.playtime / 3600000).toFixed(1);
-    
-    card.innerHTML = `
-      <img class="player-head" src="https://crafatar.com/avatars/${uuid}?size=48&overlay" onerror="this.src='data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='">
-      <div class="player-info">
-        <div class="player-name">${p.name} ${Store.online.has(p.name) ? '[ONLINE]' : ''}</div>
-        <div class="player-meta">UUID: ${uuid} | PLAYTIME: ${hours}H | LAST SEEN: ${new Date(p.lastSeen).toLocaleString()}</div>
-        <div class="player-meta">IPS: ${(p.ips||[]).join(', ')}</div>
-        ${alts.size > 0 ? `<div class="alts-warn">⚠️ SHARED IP DETECTED: ${Array.from(alts).join(', ')}</div>` : ''}
-      </div>
-    `;
-    list.appendChild(card);
-  });
-}
-
-/* --- High-Speed File Manager --- */
-async function loadFiles(dir) {
-  if(dir === '..') currentPath = currentPath.split('/').slice(0,-1).join('/');
-  else if(dir !== '') currentPath = currentPath ? currentPath + '/' + dir : dir;
-  else currentPath = '';
-  
-  document.getElementById('current-path').innerText = '/' + currentPath;
-  const list = document.getElementById('file-list');
-  list.innerHTML = 'LOADING...';
-  
-  const r = await fetch(API+'/api/fs/list?path=' + encodeURIComponent(currentPath));
-  const items = await r.json();
-  
-  list.innerHTML = '';
-  items.forEach(f => {
-    const row = document.createElement('div');
-    row.className = 'file-row';
-    row.innerHTML = `
-      <div style="display:flex; gap:10px; align-items:center;">
-        <span>${f.is_dir ? '📁' : '📄'}</span>
-        <span>${f.name}</span>
-      </div>
-      <div class="file-row-actions">
-        ${!f.is_dir ? `<button onclick="event.stopPropagation(); openEditor('${f.name}')">EDIT</button>` : ''}
-        <button onclick="event.stopPropagation(); renameFile('${f.name}')">REN</button>
-        <button class="danger" onclick="event.stopPropagation(); deleteFile('${f.name}', this)">DEL</button>
-      </div>
-    `;
-    if(f.is_dir) row.onclick = () => loadFiles(f.name);
-    list.appendChild(row);
-  });
-}
-
-async function deleteFile(name, btn) {
-  const row = btn.closest('.file-row');
-  row.style.display = 'none'; // Optimistic remove
-  const p = currentPath ? currentPath+'/'+name : name;
-  await fetch(API+'/api/fs/delete', { method:'POST', body: new URLSearchParams({path: p}) });
-  toast('DELETED: ' + name);
-}
-
-async function renameFile(oldName) {
-  const newName = prompt('NEW NAME:', oldName);
-  if(!newName || newName === oldName) return;
-  const p = currentPath ? currentPath+'/'+oldName : oldName;
-  await fetch(API+'/api/fs/rename', { method:'POST', body: new URLSearchParams({path: p, new_name: newName}) });
-  loadFiles('');
-}
-
-async function newFile(isDir) {
-  const name = prompt(isDir ? 'DIR NAME:' : 'FILE NAME:');
-  if(!name) return;
-  await fetch(API+'/api/fs/new', { method:'POST', body: new URLSearchParams({path: currentPath, name: name, is_dir: isDir}) });
-  loadFiles('');
-}
-
-/* --- Editor Buffer --- */
-async function openEditor(name) {
-  editingPath = currentPath ? currentPath+'/'+name : name;
-  document.getElementById('editor-file').innerText = editingPath;
-  document.getElementById('editor').value = 'LOADING...';
-  document.getElementById('editor-container').style.display = 'flex';
-  
-  const r = await fetch(API+'/api/fs/read?path=' + encodeURIComponent(editingPath));
-  document.getElementById('editor').value = await r.text();
-}
-
-async function saveEditor() {
-  const content = document.getElementById('editor').value;
-  await fetch(API+'/api/fs/write', { method:'POST', body: new URLSearchParams({path: editingPath, content: content}) });
-  toast('FILE WRITTEN');
-}
-function closeEditor() { document.getElementById('editor-container').style.display = 'none'; }
-
-// Tab support in editor
-document.getElementById('editor').addEventListener('keydown', function(e) {
-  if (e.key == 'Tab') {
-    e.preventDefault();
-    const start = this.selectionStart, end = this.selectionEnd;
-    this.value = this.value.substring(0, start) + "    " + this.value.substring(end);
-    this.selectionStart = this.selectionEnd = start + 4;
+// ═══════════════════════════════════════════════
+// LINE PROCESSOR  — routes events from WS stream
+// ═══════════════════════════════════════════════
+const ANSI=(/\x1b\[[0-9;]*m/g);
+function processLine(raw){
+  log(raw);
+  const ev=LP.parse(raw); if(!ev) return;
+  switch(ev.t){
+    case 'ip':    PT.onIP(ev.user,ev.ip); break;
+    case 'join':  PT.onJoin(ev.user); break;
+    case 'leave': PT.onLeave(ev.user); break;
+    case 'ver':   S.version=ev.ver; $('s-ver').textContent=ev.ver; localStorage.setItem('mc_ver',ev.ver); break;
+    case 'ready': setDot(true); break;
+    case 'pc':    S.maxPlayers=ev.max; updateCount(); break;
   }
+}
+
+// ═══════════════════════════════════════════════
+// CONSOLE UI
+// ═══════════════════════════════════════════════
+function log(raw,type){
+  const el=$('log'); if(!el) return;
+  const txt=raw.replace(ANSI,'');
+  const d=document.createElement('div');
+  d.className='ll';
+  d.textContent=txt;
+  if(type==='p'||txt.includes('[Panel]')||txt.includes('[AutoBackup]')) d.classList.add('p');
+  else if(type==='c') d.classList.add('c');
+  else if(/ERROR\]/.test(txt)) d.classList.add('e');
+  else if(/WARN\]/.test(txt))  d.classList.add('w');
+  else if(/joined the game/.test(txt)) d.classList.add('j');
+  else if(/left the game|lost connection/.test(txt)) d.classList.add('l');
+  el.appendChild(d);
+  if(S.autoScroll) el.scrollTop=el.scrollHeight;
+  while(el.children.length>500) el.removeChild(el.firstChild);
+}
+
+function sendCmd(){
+  const inp=$('cmd'),cmd=inp.value.trim(); if(!cmd) return;
+  log('> '+cmd,'c');
+  WS.send(cmd);
+  S.cmdHistory.push(cmd); if(S.cmdHistory.length>50) S.cmdHistory.shift();
+  S.cmdIdx=-1; inp.value='';
+}
+
+function cmdKey(e){
+  if(e.key==='Enter'){sendCmd();return;}
+  if(e.key==='ArrowUp'){ e.preventDefault(); S.cmdIdx=Math.min(S.cmdIdx+1,S.cmdHistory.length-1); e.target.value=S.cmdHistory[S.cmdHistory.length-1-S.cmdIdx]||''; }
+  if(e.key==='ArrowDown'){ S.cmdIdx=Math.max(S.cmdIdx-1,-1); e.target.value=S.cmdIdx<0?'':(S.cmdHistory[S.cmdHistory.length-1-S.cmdIdx]||''); }
+}
+
+// ═══════════════════════════════════════════════
+// MC CONTROL + STATUS
+// ═══════════════════════════════════════════════
+async function mcCtrl(action){
+  if(action==='start') setDot(true);
+  if(action==='stop'||action==='kill'){ setDot(false); S.currentOnline.clear(); updateCount(); }
+  const r=await apiFd('/mc/control',{action});
+  log('[Panel] '+await r.text(),'p');
+}
+function setDot(on){ S.online=on; $('s-dot').className='dot '+(on?'on':'off'); }
+function updateCount(){ $('s-players').textContent=S.currentOnline.size+'/'+S.maxPlayers; }
+
+// ═══════════════════════════════════════════════
+// TAB ROUTER
+// ═══════════════════════════════════════════════
+function switchTab(name,btn){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  $('panel-'+name).classList.add('active'); btn.classList.add('active');
+  if(name==='players') renderPlayers();
+  if(name==='files')   FM.loadTree(S.curPath);
+  if(name==='plugins') loadInstalled();
+  if(name==='settings'){ loadDisk(); renderAltDetail(); populateSettingsFrm(); }
+}
+
+// ═══════════════════════════════════════════════
+// PLAYER TABLE
+// ═══════════════════════════════════════════════
+function renderPlayers(){
+  const q=($('p-filter')?.value||'').toLowerCase();
+  const altNames=new Set(S.altGroups.flatMap(g=>g.accounts));
+  let rows=Object.values(S.players).filter(p=>!q||p.username.toLowerCase().includes(q))
+    .sort((a,b)=>{ const la=a.sessions.length?a.sessions[a.sessions.length-1].join:0,lb=b.sessions.length?b.sessions[b.sessions.length-1].join:0; return lb-la; });
+  if(!rows.length){ $('player-wrap').innerHTML='<div class="muted">No players match.</div>'; return; }
+  $('player-wrap').innerHTML=`<table><thead><tr>
+    <th></th><th>Username</th><th>UUID</th><th>IPs</th><th>Sessions</th><th>Playtime</th><th>Last Seen</th><th>Flags</th>
+  </tr></thead><tbody>${rows.map(p=>{
+    const on=S.currentOnline.has(p.username),ls=p.sessions.length?p.sessions[p.sessions.length-1]:null;
+    const flags=[on?'<span class="flag-on">●On</span>':'',altNames.has(p.username)?'<span class="flag-alt">⚠Alt</span>':''].filter(Boolean).join(' ');
+    return`<tr class="${on?'or-row':''}">
+      <td><img src="${MINOTAR}/${encodeURIComponent(p.username)}/22" width="22" height="22" loading="lazy" onerror="this.style.opacity=0" style="border-radius:2px;display:block"></td>
+      <td><strong>${escH(p.username)}</strong></td>
+      <td class="uuid" title="${escH(p.uuid||'')}">${(p.uuid||'').slice(0,13)||'—'}</td>
+      <td style="font-size:10px;color:var(--mt)">${(p.ips||[]).map(escH).join('<br>')||'—'}</td>
+      <td>${p.sessions.length}</td><td>${fmtMs(p.totalMs||0)}</td>
+      <td style="font-size:10px">${fmtDt(ls?.join)}</td><td>${flags}</td>
+    </tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+// ═══════════════════════════════════════════════
+// MODRINTH CLIENT
+// ═══════════════════════════════════════════════
+async function pluginSearch(){
+  const q=$('p-q').value.trim(); if(!q){ $('p-results').innerHTML='<div class="muted">Enter a search term.</div>'; return; }
+  $('p-results').innerHTML='<div class="muted">Searching Modrinth…</div>';
+  const url=MODRINTH_API+'/search?query='+encodeURIComponent(q)+'&limit=12&facets='+encodeURIComponent('[["project_type:plugin"],["versions:'+S.version+'"]]');
+  try{
+    const r=await fetch(url,{headers:{'User-Agent':'MCPanel/2.0'}});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const {hits=[]}=await r.json();
+    hits.forEach(h=>S.modrinthCache[h.project_id]=h);
+    $('p-results').innerHTML=hits.length?hits.map(h=>`
+      <div class="pc">
+        <img src="${h.icon_url||''}" onerror="this.style.display='none'" loading="lazy">
+        <div class="pi"><strong>${escH(h.title)}</strong><span>${escH((h.description||'').slice(0,90))}</span><span>⬇ ${(h.downloads||0).toLocaleString()} · ${(h.categories||[]).join(', ')}</span></div>
+        <button id="ib-${h.project_id}" onclick="pluginInstall('${h.project_id}')">Install</button>
+      </div>`).join(''):'<div class="muted">No results for MC '+escH(S.version)+'. Try a different version in Settings.</div>';
+  }catch(e){ $('p-results').innerHTML='<div class="err-msg">Search failed: '+escH(e.message)+'</div>'; }
+}
+
+async function pluginInstall(pid){
+  const hit=S.modrinthCache[pid]; if(!hit) return;
+  const btn=$('ib-'+pid); if(btn){btn.textContent='Resolving…';btn.disabled=true;}
+  try{
+    const vUrl=MODRINTH_API+'/project/'+pid+'/version?game_versions='+encodeURIComponent('["'+S.version+'"]')+'&loaders='+encodeURIComponent('["paper","purpur","bukkit","spigot","folia"]');
+    const vr=await fetch(vUrl,{headers:{'User-Agent':'MCPanel/2.0'}});
+    const versions=vr.ok?await vr.json():[];
+    if(!versions.length){ if(btn){btn.textContent='No compat version';btn.style.color='var(--yw)';} return; }
+    const file=versions[0].files.find(f=>f.primary)||versions[0].files[0];
+    if(!file){ if(btn){btn.textContent='No file';btn.style.color='var(--rd)';} return; }
+    if(btn) btn.textContent='Installing…';
+    const ir=await apiFd('/plugins/install',{url:file.url,filename:file.filename,project_id:pid,version_id:versions[0].id,name:hit.title});
+    if(ir.ok){ if(btn){btn.textContent='✓ Done';btn.style.color='var(--gr)';} loadInstalled(); }
+    else throw new Error(await ir.text());
+  }catch(e){ if(btn){btn.textContent='Failed';btn.style.color='var(--rd)';btn.disabled=false;} log('[Panel] Install failed: '+e.message,'e'); }
+}
+
+async function loadInstalled(){
+  try{
+    const items=await apiJSON('/fs/list?path=plugins');
+    const jars=items.filter(f=>!f.is_dir&&f.name.endsWith('.jar'));
+    $('p-installed').innerHTML=jars.length
+      ?`<div style="font-size:10px;color:var(--mt);padding:4px">INSTALLED (${jars.length})</div>`
+        +jars.map(f=>`<div class="inst-row"><span>🔌 ${escH(f.name)}</span><span style="color:var(--mt)">${fmtB(f.size)}</span><button onclick="FM.del('plugins/${encodeURIComponent(f.name)}')" style="font-size:10px;padding:2px 6px">Remove</button></div>`).join('')
+      :'<div class="muted">No .jar files in /plugins.</div>';
+  }catch(_){}
+}
+
+// ═══════════════════════════════════════════════
+// FILE MANAGER
+// ═══════════════════════════════════════════════
+const FM = {
+  async loadTree(path=''){
+    S.curPath=path;
+    try{
+      const items=await apiJSON('/fs/list?path='+encodeURIComponent(path));
+      const back=path?`<div class="fi dir" onclick="FM.loadTree('${encodeURIComponent(parentPath(path))}')">← ..</div>`:'';
+      $('file-tree').innerHTML=back+items.map(f=>{
+        const full=(path?(path+'/'):'')+f.name, enc=encodeURIComponent(full);
+        return f.is_dir
+          ?`<div class="fi dir" onclick="FM.loadTree('${enc}')">📁 <span class="fn">${escH(f.name)}</span></div>`
+          :`<div class="fi" onclick="FM.open('${enc}')">📄 <span class="fn">${escH(f.name)}</span><span class="fsz">${fmtB(f.size)}</span><span class="fdel" onclick="event.stopPropagation();FM.del('${enc}')">✕</span></div>`;
+      }).join('');
+    }catch(e){ $('file-tree').innerHTML='<div class="muted">'+escH(e.message)+'</div>'; }
+  },
+  async open(enc){
+    const path=decodeURIComponent(enc); S.editorPath=path; $('ed-path').textContent=path;
+    try{ const r=await fetch('/api/fs/read?path='+encodeURIComponent(path)); $('ed-area').value=r.ok?await r.text():'[Error]'; }
+    catch(_){ $('ed-area').value='[Connection error]'; }
+  },
+  async save(){
+    if(!S.editorPath) return;
+    const r=await apiFd('/fs/write',{path:S.editorPath,content:$('ed-area').value});
+    $('ed-path').textContent=S.editorPath+(r.ok?' ✓':' ✗');
+    clearTimeout(S.editorTimer);
+  },
+  async del(enc){
+    const path=decodeURIComponent(enc); if(!confirm('Delete '+path+'?')) return;
+    await apiFd('/fs/delete',{path}); this.loadTree(S.curPath);
+  },
+  async newFile(){ const n=prompt('File name:'); if(!n) return; await apiFd('/fs/new-file',{path:S.curPath,name:n}); this.loadTree(S.curPath); },
+  async newFolder(){ const n=prompt('Folder name:'); if(!n) return; await apiFd('/fs/new-folder',{path:S.curPath,name:n}); this.loadTree(S.curPath); },
+  async upload(inp){
+    if(!inp.files.length) return;
+    const fd=new FormData(); fd.append('path',S.curPath); fd.append('file',inp.files[0]);
+    await fetch('/api/fs/upload',{method:'POST',body:fd}); this.loadTree(S.curPath); inp.value='';
+  },
+  dl(){ if(S.editorPath) window.open('/api/fs/download?path='+encodeURIComponent(S.editorPath)); },
+};
+
+// ═══════════════════════════════════════════════
+// SETTINGS
+// ═══════════════════════════════════════════════
+function populateSettingsFrm(){ $('cfg-ip').value=S.ip; $('cfg-ver').value=S.version; $('cfg-maxp').value=S.maxPlayers; }
+function saveSettings(){
+  S.ip=$('cfg-ip').value.trim(); S.version=$('cfg-ver').value.trim()||'1.21.1'; S.maxPlayers=parseInt($('cfg-maxp').value)||20;
+  $('s-ip').textContent=S.ip||'—'; $('s-ver').textContent=S.version; updateCount(); Cfg.flush();
+}
+async function loadDisk(){
+  try{
+    const d=await apiJSON('/fs/disk'); const pct=((d.used/d.total)*100).toFixed(1);
+    $('disk-fill').style.width=pct+'%'; $('disk-fill').style.background=pct>85?'var(--rd)':pct>65?'var(--yw)':'var(--ac)';
+    $('disk-info').textContent=fmtB(d.used)+' / '+fmtB(d.total)+' ('+pct+'% used)';
+  }catch(_){}
+}
+function renderAltDetail(){
+  if(!S.altGroups.length){ $('alt-detail').textContent='No alt groups detected.'; return; }
+  $('alt-detail').innerHTML=S.altGroups.map(g=>`<div style="margin-bottom:6px;padding:6px;border:1px solid var(--bd);border-radius:3px"><span style="color:var(--yw)">⚠ IP: ${escH(g.ip)}</span><br><span style="color:var(--mt)">${g.accounts.map(escH).join(' · ')}</span></div>`).join('');
+}
+
+// ═══════════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════════
+async function login(){
+  const pw=$('pw').value.trim(); if(!pw) return;
+  $('login-btn').textContent='…'; $('login-btn').disabled=true;
+  try{
+    const r=await apiFd('/auth',{pass:pw});
+    if(r.ok){ S.pass=pw; localStorage.setItem('mc_pass',pw); $('auth').style.display='none'; $('app').style.display='flex'; await appInit(); }
+    else $('auth-err').textContent='Invalid password';
+  }catch(_){ $('auth-err').textContent='Connection error'; }
+  $('login-btn').textContent='Connect'; $('login-btn').disabled=false;
+}
+
+// ═══════════════════════════════════════════════
+// APP INIT
+// ═══════════════════════════════════════════════
+async function appInit(){
+  await Cfg.load();
+  WS.connect();
+  setInterval(async()=>{ try{ const d=await apiJSON('/mc/status'); setDot(d.running); }catch(_){} },POLL_INTERVAL);
+  loadDisk();
+}
+
+// ═══════════════════════════════════════════════
+// DOM WIRING  (after parse)
+// ═══════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded',()=>{
+  const saved=localStorage.getItem('mc_pass');
+  if(saved){ $('pw').value=saved; login(); }
+  $('pw').addEventListener('keydown',e=>e.key==='Enter'&&login());
+  $('cmd').addEventListener('keydown',cmdKey);
+  $('p-q').addEventListener('keydown',e=>e.key==='Enter'&&pluginSearch());
+  $('log').addEventListener('scroll',()=>{ const el=$('log'); S.autoScroll=el.scrollHeight-el.scrollTop-el.clientHeight<30; });
+  $('ed-area').addEventListener('input',()=>{
+    clearTimeout(S.editorTimer);
+    $('ed-path').textContent=(S.editorPath||'')+'*';
+    S.editorTimer=setTimeout(()=>FM.save(),EDITOR_DELAY);
+  });
 });
-
-/* --- Plugin Engine (Modrinth) --- */
-async function searchPlugins() {
-  const q = document.getElementById('pl-search').value;
-  const ver = document.getElementById('pl-ver').value;
-  if(!q) return;
-  
-  const list = document.getElementById('pl-list');
-  list.innerHTML = 'QUERYING MODRINTH...';
-  
-  try {
-    const res = await fetch(`https://api.modrinth.com/v2/search?query=${encodeURIComponent(q)}&facets=[["project_type:plugin"]]&limit=15`);
-    const data = await res.json();
-    list.innerHTML = '';
-    
-    data.hits.forEach(p => {
-      const card = document.createElement('div');
-      card.className = 'player-card';
-      card.innerHTML = `
-        <div class="player-info">
-          <div class="player-name">${p.title}</div>
-          <div class="player-meta">${p.description}</div>
-          <div class="player-meta" style="margin-top:4px;">DL: ${p.downloads} | AUTH: ${p.author}</div>
-        </div>
-        <button onclick="installPlugin('${p.project_id}', '${ver}')">INSTALL</button>
-      `;
-      list.appendChild(card);
-    });
-  } catch { list.innerHTML = 'QUERY FAILED'; }
-}
-
-async function installPlugin(id, ver) {
-  toast('RESOLVING DEPENDENCIES...');
-  try {
-    // Get version file compatible with paper/purpur and the selected MC version
-    const res = await fetch(`https://api.modrinth.com/v2/project/${id}/version?loaders=["paper","purpur"]&game_versions=["${ver}"]`);
-    const versions = await res.json();
-    if(!versions.length) { toast('NO COMPATIBLE BUILD FOUND'); return; }
-    
-    const file = versions[0].files[0];
-    toast('DOWNLOADING ' + file.filename);
-    
-    await fetch(API+'/api/plugins/install', { method:'POST', body: new URLSearchParams({url: file.url, filename: file.filename}) });
-    toast('INSTALLED: ' + file.filename);
-  } catch(e) { toast('INSTALLATION FAILED'); }
-}
 </script>
 </body>
 </html>
