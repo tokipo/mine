@@ -1,1212 +1,536 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MCPanel</title>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MC_SYS // TERMINAL</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
-*{box-sizing:border-box;margin:0;padding:0}body{font:12px/1.5 monospace;background:#0d0d0d;color:#ccc}
-#auth{display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:8px}
-#auth h1{color:#4af;font-size:22px;letter-spacing:2px}
-#auth input,#auth button,input,select,textarea,button{padding:6px 10px;background:#1a1a1a;border:1px solid #2a2a2a;color:#ccc;font:inherit;cursor:pointer}
-button:hover{background:#252525}
-#app{display:none;flex-direction:column;height:100vh}
-#status-bar{display:flex;flex-wrap:wrap;gap:8px;padding:5px 10px;background:#111;border-bottom:1px solid #1e1e1e;font-size:11px;align-items:center}
-#status-bar span{padding:2px 7px;background:#161616;border-radius:3px}
-nav{display:flex;background:#111;border-bottom:1px solid #1e1e1e}
-nav button{padding:7px 14px;background:none;border:none;border-bottom:2px solid transparent;color:#666}
-nav button.active{color:#4af;border-bottom-color:#4af}
-.tab{display:none;padding:8px;height:calc(100vh - 70px);overflow:auto;flex-direction:column;gap:6px}
-.tab.active{display:flex}
-.row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-input[type=text],input:not([type]),input[type=number],input[type=password],select{background:#111;border-color:#333}
-.badge{padding:1px 6px;border-radius:3px;font-size:10px;background:#222;color:#888}
-.badge.warn{color:#fa4}.online{color:#4f4}.offline{color:#f44}.c-err{color:#f44}.c-join{color:#4f4}.c-leave{color:#f84}.c-panel{color:#4af}
-.sub{color:#666;font-size:10px}.uuid{font-size:9px;color:#444}.empty{color:#555;padding:10px}
-.up-link,.dir-link{color:#4af;text-decoration:none}.btn-danger{color:#f44}
-table{width:100%;border-collapse:collapse}td,th{padding:4px 7px;border-bottom:1px solid #181818;vertical-align:middle}th{background:#111;color:#666;font-size:10px}
-img.head{width:22px;height:22px;image-rendering:pixelated;vertical-align:middle;margin-right:5px}
-.plugin-hit{display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid #181818}
-.plugin-icon{width:32px;height:32px;border-radius:3px}.plugin-icon-ph{width:32px;height:32px;background:#222;border-radius:3px}
-.plugin-meta{flex:1}.plugin-dl{color:#555;font-size:10px;min-width:40px;text-align:right}
-.alt-cluster{margin:6px 0;padding:6px;background:#180808;border:1px solid #300}.alt-row{margin:3px 0 0 10px;display:flex;align-items:center;gap:6px}
-#console-output{flex:1;background:#080808;padding:8px;overflow-y:auto;font-size:11px;border:1px solid #1a1a1a;white-space:pre-wrap;word-break:break-all}
-#editor-area{flex:1;resize:none;background:#080808;border:1px solid #1a1a1a;color:#ddd;font-size:12px;padding:8px;font-family:monospace;min-height:300px}
-#plugin-results{max-height:260px;overflow-y:auto;border:1px solid #1e1e1e}
-#alts-panel{display:none;padding:8px;background:#100808;border:1px solid #300;font-size:11px}
-</style></head>
+  :root {
+    --bg: #000000; --bg-panel: #0a0a0a; --bg-hover: #161616;
+    --fg: #e0e0e0; --fg-dim: #666666; 
+    --border: #333333; --border-focus: #00ff00;
+    --acc: #00ff00; --acc-dim: rgba(0,255,0,0.1);
+    --err: #ff003c; --err-dim: rgba(255,0,60,0.1);
+    --font: 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 12px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; text-transform: uppercase; }
+  
+  /* Utils */
+  button, input, select, textarea { font-family: inherit; font-size: inherit; text-transform: inherit; background: none; color: inherit; border: 1px solid var(--border); outline: none; transition: border 0.1s; }
+  button { cursor: pointer; padding: 6px 12px; background: var(--bg-panel); }
+  button:hover { background: var(--acc-dim); border-color: var(--acc); color: var(--acc); }
+  button.danger:hover { background: var(--err-dim); border-color: var(--err); color: var(--err); }
+  input, select { padding: 6px 10px; background: var(--bg); width: 100%; }
+  input:focus, textarea:focus { border-color: var(--acc); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); border-left: 1px solid var(--border); }
+  ::-webkit-scrollbar-thumb { background: var(--border); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); }
+
+  /* Layout */
+  #login { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .login-box { border: 1px solid var(--border); padding: 24px; width: 300px; background: var(--bg-panel); }
+  
+  header { border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; background: var(--bg-panel); flex-shrink: 0; }
+  .status-bar { display: flex; gap: 20px; color: var(--fg-dim); }
+  .status-item span { color: var(--acc); font-weight: 700; }
+  
+  .layout { display: flex; flex: 1; overflow: hidden; }
+  nav { width: 180px; border-right: 1px solid var(--border); background: var(--bg-panel); display: flex; flex-direction: column; }
+  .nav-btn { border: none; border-bottom: 1px solid var(--border); text-align: left; padding: 12px 16px; background: transparent; }
+  .nav-btn.active { color: var(--acc); border-left: 4px solid var(--acc); padding-left: 12px; background: var(--acc-dim); }
+  
+  main { flex: 1; position: relative; display: flex; flex-direction: column; }
+  .tab { display: none; flex: 1; flex-direction: column; overflow: hidden; padding: 16px; }
+  .tab.active { display: flex; }
+
+  /* Console */
+  #term { flex: 1; overflow-y: auto; padding: 10px; border: 1px solid var(--border); background: var(--bg); word-wrap: break-word; white-space: pre-wrap; margin-bottom: 10px; }
+  .term-line:hover { background: var(--bg-hover); }
+  .cmd-bar { display: flex; gap: 10px; }
+  
+  /* Tables/Grids */
+  .data-table { width: 100%; border-collapse: collapse; }
+  .data-table th, .data-table td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+  .data-table th { background: var(--bg-panel); color: var(--fg-dim); }
+  .data-table tr:hover { background: var(--bg-hover); }
+  
+  /* Player Analytics */
+  .player-card { border: 1px solid var(--border); display: flex; gap: 16px; padding: 12px; background: var(--bg-panel); align-items: center; margin-bottom: 10px; }
+  .player-head { width: 48px; height: 48px; border: 1px solid var(--border); image-rendering: pixelated; }
+  .player-info { flex: 1; }
+  .player-name { font-size: 14px; color: var(--acc); font-weight: 700; margin-bottom: 4px; }
+  .player-meta { color: var(--fg-dim); font-size: 10px; }
+  .alts-warn { color: var(--err); font-weight: 700; margin-top: 4px; display: none; }
+  
+  /* File Manager */
+  .toolbar { display: flex; gap: 10px; margin-bottom: 10px; }
+  .file-list { flex: 1; overflow-y: auto; border: 1px solid var(--border); }
+  .file-row { display: flex; padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; align-items: center; justify-content: space-between; }
+  .file-row:hover { background: var(--bg-hover); }
+  .file-row-actions { opacity: 0; display: flex; gap: 6px; }
+  .file-row:hover .file-row-actions { opacity: 1; }
+  
+  /* Editor */
+  #editor-container { display: none; position: absolute; inset: 0; background: var(--bg); flex-direction: column; z-index: 10; border-left: 1px solid var(--border); }
+  #editor { flex: 1; background: var(--bg); border: none; padding: 16px; color: var(--fg); resize: none; tab-size: 4; }
+  
+  /* Toasts */
+  #toasts { position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 999; }
+  .toast { padding: 10px 16px; border: 1px solid var(--acc); background: var(--bg-panel); color: var(--acc); }
+</style>
+</head>
 <body>
 
-<div id="auth">
-  <h1>⬡ MCPANEL</h1>
-  <input id="pass-input" type="password" placeholder="Password…" onkeydown="if(event.key==='Enter')MCPanel.auth()">
-  <button onclick="MCPanel.auth()">Connect</button>
-  <div id="auth-err" style="color:#f44;font-size:11px"></div>
+<div id="login">
+  <div class="login-box">
+    <h2 style="margin-bottom: 16px; color: var(--acc);">AUTH_REQ</h2>
+    <input type="password" id="pass" placeholder="PASSWORD" style="margin-bottom: 10px;" autofocus>
+    <button onclick="auth()" style="width: 100%;">INITIALIZE</button>
+  </div>
 </div>
 
-<div id="app">
-  <div id="status-bar">
-    <span>⬡ MCPanel</span>
-    <span id="st-status" class="offline">● OFFLINE</span>
-    <span id="st-ip">IP: —</span>
-    <span id="st-players">Players: 0</span>
-    <span id="st-version">Version: —</span>
-    <span id="st-uptime" style="margin-left:auto"></span>
+<header>
+  <div>MC_SYS // DASHBOARD</div>
+  <div class="status-bar">
+    <div class="status-item">IP: <span id="hdr-ip">0.0.0.0</span></div>
+    <div class="status-item">PLAYERS: <span id="hdr-players">0</span></div>
+    <div class="status-item">STATUS: <span id="hdr-status" style="color:var(--err)">OFFLINE</span></div>
   </div>
+</header>
+
+<div class="layout">
   <nav>
-    <button class="active" onclick="MCPanel.tab('console',this)">Console</button>
-    <button onclick="MCPanel.tab('plugins',this)">Plugins</button>
-    <button onclick="MCPanel.tab('players',this)">Players</button>
-    <button onclick="MCPanel.tab('files',this)">Files</button>
-    <button onclick="MCPanel.tab('settings',this)">Settings</button>
+    <button class="nav-btn active" onclick="nav('console')">CONSOLE</button>
+    <button class="nav-btn" onclick="nav('players')">ANALYTICS</button>
+    <button class="nav-btn" onclick="nav('files')">FILES</button>
+    <button class="nav-btn" onclick="nav('plugins')">PLUGINS</button>
   </nav>
 
-  <!-- CONSOLE -->
-  <div id="tab-console" class="tab active">
-    <div class="row">
-      <button onclick="MCPanel.mc('start')">▶ Start</button>
-      <button onclick="MCPanel.mc('stop')">■ Stop</button>
-      <button onclick="MCPanel.mc('restart')">↺ Restart</button>
-      <button onclick="MCPanel.mc('kill')" class="btn-danger">✕ Kill</button>
-      <button onclick="MCPanel.clearConsole()" style="margin-left:auto">Clear</button>
+  <main>
+    <!-- Console -->
+    <div id="tab-console" class="tab active">
+      <div class="toolbar">
+        <button onclick="mc('start')">START</button>
+        <button onclick="mc('stop')">STOP</button>
+        <button onclick="mc('kill')" class="danger">KILL</button>
+        <button onclick="ws.send('list')">SYNC PLAYERS</button>
+      </div>
+      <div id="term"></div>
+      <div class="cmd-bar">
+        <span style="color:var(--acc); padding-top:6px;">></span>
+        <input type="text" id="cmd" placeholder="EXECUTE COMMAND..." autocomplete="off">
+      </div>
     </div>
-    <div id="console-output"></div>
-    <div class="row">
-      <input id="cmd-input" style="flex:1" placeholder="Command…" onkeydown="if(event.key==='Enter')MCPanel.sendCmd()">
-      <button onclick="MCPanel.sendCmd()">Send</button>
-    </div>
-  </div>
 
-  <!-- PLUGINS -->
-  <div id="tab-plugins" class="tab">
-    <div class="row">
-      <input id="plugin-search" placeholder="Search Modrinth…" style="flex:1" onkeydown="if(event.key==='Enter')MCPanel.plugins.search()">
-      <select id="plugin-loader"><option value="purpur">Purpur</option><option value="paper">Paper</option><option value="bukkit">Bukkit</option></select>
-      <button onclick="MCPanel.plugins.search()">Search</button>
-      <button onclick="MCPanel.plugins.checkUpdates()" style="color:#fa4">↑ Updates</button>
+    <!-- Analytics -->
+    <div id="tab-players" class="tab">
+      <div class="toolbar" style="justify-content: space-between;">
+        <div>PLAYER DATABASE // LOCAL CACHE</div>
+        <button onclick="saveConfig()">FORCE SAVE</button>
+      </div>
+      <div id="player-list" style="overflow-y: auto; flex: 1;"></div>
     </div>
-    <div id="plugin-results"></div>
-    <div style="flex:1;overflow:auto;border:1px solid #1e1e1e">
-      <table><thead><tr><th>Plugin</th><th>Version</th><th>Installed</th><th>Actions</th></tr></thead>
-      <tbody id="plugin-tbody"></tbody></table>
-    </div>
-  </div>
 
-  <!-- PLAYERS -->
-  <div id="tab-players" class="tab">
-    <div class="row">
-      <span id="online-badge" class="badge">0 Online</span>
-      <button onclick="MCPanel.players.showAlts()" style="color:#fa4">🔍 Detect Alts</button>
-      <input id="player-search" placeholder="Filter…" oninput="MCPanel.players.filter(this.value)" style="width:180px;margin-left:auto">
+    <!-- Files -->
+    <div id="tab-files" class="tab">
+      <div class="toolbar">
+        <button onclick="loadFiles('..')">UP_DIR</button>
+        <button onclick="newFile(true)">MKDIR</button>
+        <button onclick="newFile(false)">TOUCH</button>
+        <span id="current-path" style="align-self:center; margin-left:10px; color:var(--acc);">/</span>
+      </div>
+      <div class="file-list" id="file-list"></div>
+      
+      <div id="editor-container">
+        <div class="toolbar" style="padding: 10px; border-bottom: 1px solid var(--border); margin: 0; background: var(--bg-panel);">
+          <span id="editor-file" style="align-self: center; color: var(--acc); flex: 1;"></span>
+          <button onclick="saveEditor()">WRITE</button>
+          <button onclick="closeEditor()">CLOSE</button>
+        </div>
+        <textarea id="editor" spellcheck="false"></textarea>
+      </div>
     </div>
-    <div id="alts-panel"></div>
-    <div style="flex:1;overflow:auto;border:1px solid #1e1e1e">
-      <table><thead><tr><th>Player</th><th>UUID</th><th>First Seen</th><th>Last Seen</th><th>Playtime</th><th>IPs</th><th>Status</th></tr></thead>
-      <tbody id="player-tbody"></tbody></table>
-    </div>
-  </div>
 
-  <!-- FILES -->
-  <div id="tab-files" class="tab">
-    <div class="row">
-      <span id="file-path" class="sub" style="flex:1">/(root)</span>
-      <button onclick="MCPanel.files.newFolder()">+ Folder</button>
-      <button onclick="MCPanel.files.newFile()">+ File</button>
-      <input type="file" id="upload-input" style="display:none" onchange="MCPanel.files.upload(this)">
-      <button onclick="document.getElementById('upload-input').click()">↑ Upload</button>
+    <!-- Plugins -->
+    <div id="tab-plugins" class="tab">
+      <div class="toolbar">
+        <input type="text" id="pl-search" placeholder="MODRINTH QUERY..." style="width: 300px;">
+        <select id="pl-ver" style="width: 120px;">
+          <option>1.21.1</option><option>1.20.4</option><option>1.19.4</option>
+        </select>
+        <button onclick="searchPlugins()">QUERY</button>
+      </div>
+      <div id="pl-list" style="overflow-y: auto; flex: 1;"></div>
     </div>
-    <div id="file-list" style="flex:1;overflow:auto;border:1px solid #1e1e1e">
-      <table><thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead><tbody id="file-tbody"></tbody></table>
-    </div>
-    <div id="editor-panel" style="display:none;flex:1;flex-direction:column;gap:6px">
-      <div class="row"><span id="editor-filename" style="color:#4af;flex:1"></span>
-        <button onclick="MCPanel.files.saveEditor()">💾 Save</button>
-        <button onclick="MCPanel.files.closeEditor()">✕ Close</button></div>
-      <textarea id="editor-area"></textarea>
-    </div>
-  </div>
-
-  <!-- SETTINGS -->
-  <div id="tab-settings" class="tab">
-    <div style="max-width:420px;display:flex;flex-direction:column;gap:10px">
-      <label>Server IP (display only)<input id="s-ip" type="text" style="width:100%;margin-top:3px" placeholder="play.example.com"></label>
-      <label>Game Version<input id="s-version" type="text" style="width:120px;margin-left:8px" placeholder="1.21.1"></label>
-      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="s-autobackup"> Auto-backup on empty server</label>
-      <label>Backup delay (seconds)<input id="s-delay" type="number" style="width:80px;margin-left:8px" value="120"></label>
-      <button onclick="MCPanel.settings.save()" style="width:120px">Save</button>
-      <div class="sub">Config path: <code style="color:#4af">plugins/config.json</code></div>
-      <div id="settings-msg" class="c-join"></div>
-    </div>
-  </div>
+  </main>
 </div>
 
+<div id="toasts"></div>
+
 <script>
+/* --- Core State & Optimistic Caching --- */
+const API = '';
+let pass = localStorage.getItem('mc_pass') || '';
+let ws = null;
 
-/**
- * dashboard.js — MCPanel Backend Logic Engine v2
- * Architecture: Cache-first · Optimistic Updates · Event-Driven · Zero-external-deps
- *
- * Modules:
- *  1. HTTP Client       – retry, cache-TTL, GET/POST wrappers
- *  2. Config Manager    – /plugins/config.json R/W with debounce
- *  3. WebSocket Client  – console bridge with exponential back-off reconnect
- *  4. Log Parser        – extracts player events from raw MC output
- *  5. Player Analytics  – session tracking, playtime, IP indexing, alt detection (Union-Find)
- *  6. Maintenance Bot   – zero-player listener → drivebackup trigger
- *  7. Plugin Engine     – Modrinth search/install/update/dependency logic
- *  8. File Manager      – CRUD + in-memory editor buffer with optimistic saves
- *  9. Status Poller     – lightweight header stats
- * 10. UI Renderers      – DOM mutation helpers, console coloriser
- */
-'use strict';
+// The central Store for state management
+const Store = {
+  players: {}, // UUID -> { name, ips:[], firstJoin, lastSeen, playtime }
+  settings: { ip: "127.0.0.1" },
+  online: new Set()
+};
 
-const MCPanel = (() => {
+let saveTimeout = null;
+let backupTimer = null;
+let currentPath = '';
+let editingPath = '';
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // § CONSTANTS
-  // ═══════════════════════════════════════════════════════════════════════
-  const MODRINTH        = 'https://api.modrinth.com/v2';
-  const MINOTAR         = 'https://minotar.net/avatar';
-  const MOJANG_PROFILES = 'https://api.mojang.com/users/profiles/minecraft';
-  const CFG_PATH        = 'plugins/config.json';
-  const POLL_MS         = 6_000;
-  const CACHE_TTL       = 30_000;
-  const WS_RETRY_BASE   = 1_500;
-  const WS_RETRY_MAX    = 30_000;
-  const CFG_DEBOUNCE_MS = 2_000;
-  const MAX_CONSOLE     = 1_000;
-  const MAX_SESSIONS    = 200;
+/* --- Init & Auth --- */
+if(pass) auth();
+async function auth() {
+  const p = pass || document.getElementById('pass').value;
+  try {
+    const r = await fetch(API+'/api/auth', { method: 'POST', body: new URLSearchParams({pass: p}) });
+    if(r.ok) {
+      pass = p; localStorage.setItem('mc_pass', pass);
+      document.getElementById('login').style.display = 'none';
+      init();
+    } else throw new Error();
+  } catch { alert('AUTH FAILED'); }
+}
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // § DEFAULT CONFIG SCHEMA  (written to /plugins/config.json on first run)
-  // ═══════════════════════════════════════════════════════════════════════
-  const DEFAULT_CONFIG = {
-    serverIp:      '',
-    serverVersion: '1.21.1',
-    loader:        'purpur',
-    maintenance: {
-      autoBackup:  true,
-      backupDelay: 120,   // seconds to wait after last player leaves
-    },
-    /**
-     * players[uuid] = {
-     *   username    : string
-     *   firstSeen   : timestamp(ms)
-     *   lastSeen    : timestamp(ms)
-     *   totalPlaytime : ms
-     *   ips         : string[]      ← deduplicated list of observed IPs
-     *   sessions    : [{start,end,ip}]  ← capped at MAX_SESSIONS
-     * }
-     */
-    players: {},
-    /**
-     * plugins[modrinth_project_id] = {
-     *   name, version, filename, projectId, versionId, installedAt, status
-     * }
-     */
-    plugins: {},
-  };
+async function init() {
+  connectWS();
+  await loadConfig();
+  document.getElementById('hdr-ip').innerText = Store.settings.ip || '0.0.0.0';
+  loadFiles('');
+  renderPlayers();
+}
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // § MUTABLE STATE  (single source of truth)
-  // ═══════════════════════════════════════════════════════════════════════
-  const S = {
-    pass:          null,
-    config:        null,
-    cfgDirty:      false,
-    cfgTimer:      null,
-    ws:            null,
-    wsRetryDelay:  WS_RETRY_BASE,
-    cache:         new Map(),            // cacheKey → { data, ts }
-    onlinePlayers: new Map(),            // username  → { joinTime, uuid, ip }
-    playerCount:   0,
-    zeroTimer:     null,
-    serverOnline:  false,
-    uptimeStart:   null,
-    pollTimer:     null,
-    editorPath:    null,
-    editorDirty:   false,
-    consoleLine:   0,
-  };
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § 1. HTTP CLIENT
-  // ═══════════════════════════════════════════════════════════════════════
-
-  /** Internal REST call to the FastAPI backend with retry (max 3). */
-  async function apiGet(path, params, opts = {}) {
-    const qs  = params ? '?' + new URLSearchParams(params) : '';
-    const url = (opts.external ? path : `/api/${path}`) + qs;
-    const key = `GET:${url}`;
-
-    if (opts.cache) {
-      const hit = S.cache.get(key);
-      if (hit && Date.now() - hit.ts < (opts.ttl ?? CACHE_TTL)) return hit.data;
+/* --- State Management (Config.json) --- */
+async function loadConfig() {
+  try {
+    const r = await fetch(API+'/api/fs/read?path=plugins/config.json');
+    if(r.ok) {
+      const data = JSON.parse(await r.text());
+      Store.players = data.players || {};
+      Store.settings = data.settings || {};
     }
+  } catch(e) { console.error("Config load failed", e); }
+}
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const r = await fetch(url);
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const ct   = r.headers.get('content-type') ?? '';
-        const data = ct.includes('json') ? await r.json() : await r.text();
-        if (opts.cache) S.cache.set(key, { data, ts: Date.now() });
-        return data;
-      } catch (e) {
-        if (attempt === 3) throw e;
-        await sleep(400 * attempt);
-      }
+function queueSave() {
+  if(saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(saveConfig, 2000);
+}
+
+async function saveConfig() {
+  const payload = JSON.stringify({ players: Store.players, settings: Store.settings });
+  await fetch(API+'/api/fs/write', { method:'POST', body: new URLSearchParams({ path: 'plugins/config.json', content: payload }) });
+  toast('CONFIG_SYNCED');
+}
+
+/* --- WebSocket & Log Parsing Engine --- */
+function connectWS() {
+  ws = new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws?pass=${encodeURIComponent(pass)}`);
+  ws.onopen = () => { document.getElementById('hdr-status').innerText = 'ONLINE'; document.getElementById('hdr-status').style.color = 'var(--acc)'; ws.send('list'); };
+  ws.onclose = () => { document.getElementById('hdr-status').innerText = 'OFFLINE'; document.getElementById('hdr-status').style.color = 'var(--err)'; setTimeout(connectWS, 3000); };
+  ws.onmessage = e => parseLog(e.data);
+}
+
+function parseLog(line) {
+  const term = document.getElementById('term');
+  const div = document.createElement('div');
+  div.className = 'term-line'; div.innerText = line;
+  term.appendChild(div);
+  if(term.childNodes.length > 500) term.removeChild(term.firstChild);
+  term.scrollTop = term.scrollHeight;
+
+  // Regex rules for Player Analytics
+  // 1. UUID Mapping
+  let m = line.match(/logged in as (\w+) \(UUID: ([\w-]+)\)/);
+  if(m) updatePlayer(m[2], { name: m[1] });
+
+  // 2. IP Mapping
+  m = line.match(/(\w+)\[\/([0-9\.]+):\d+\] logged in/);
+  if(m) {
+    const name = m[1], ip = m[2];
+    const uuid = Object.keys(Store.players).find(k => Store.players[k].name === name);
+    if(uuid) {
+      if(!Store.players[uuid].ips) Store.players[uuid].ips = [];
+      if(!Store.players[uuid].ips.includes(ip)) Store.players[uuid].ips.push(ip);
+      queueSave();
     }
   }
 
-  /** POST with FormData body and retry. */
-  async function apiPost(path, body, opts = {}) {
-    const url = opts.external ? path : `/api/${path}`;
-    const fd  = body instanceof FormData ? body : toFormData(body);
+  // 3. Join/Leave & Autonomous Maintenance
+  if(line.includes("joined the game")) {
+    m = line.match(/(\w+) joined the game/);
+    if(m) handleJoin(m[1]);
+  }
+  if(line.includes("left the game") || line.includes("disconnected")) {
+    m = line.match(/(\w+) (left the game|lost connection)/);
+    if(m) handleLeave(m[1]);
+  }
+  
+  // 4. Player List Sync (Response to 'list')
+  m = line.match(/There are (\d+) of a max of \d+ players online:/);
+  if(m) {
+    const count = parseInt(m[1]);
+    document.getElementById('hdr-players').innerText = count;
+    // We don't perfectly sync the Set here to avoid wiping it out if names aren't listed, 
+    // but we know count.
+  }
+}
 
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const r = await fetch(url, { method: 'POST', body: fd });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const ct   = r.headers.get('content-type') ?? '';
-        return ct.includes('json') ? await r.json() : await r.text();
-      } catch (e) {
-        if (attempt === 3) throw e;
-        await sleep(400 * attempt);
-      }
+function updatePlayer(uuid, data) {
+  if(!Store.players[uuid]) {
+    Store.players[uuid] = { name: data.name, ips:[], firstJoin: Date.now(), playtime: 0, lastSeen: Date.now() };
+  } else {
+    Store.players[uuid].name = data.name;
+    Store.players[uuid].lastSeen = Date.now();
+  }
+  queueSave();
+  if(document.getElementById('tab-players').classList.contains('active')) renderPlayers();
+}
+
+function handleJoin(name) {
+  Store.online.add(name);
+  updateOnlineCount();
+  const uuid = Object.keys(Store.players).find(k => Store.players[k].name === name);
+  if(uuid) { Store.players[uuid].lastSeen = Date.now(); queueSave(); }
+}
+
+function handleLeave(name) {
+  Store.online.delete(name);
+  updateOnlineCount();
+  const uuid = Object.keys(Store.players).find(k => Store.players[k].name === name);
+  if(uuid) {
+    // Add rough session time (assume 5 mins if we missed join)
+    Store.players[uuid].playtime += (Date.now() - Store.players[uuid].lastSeen);
+    Store.players[uuid].lastSeen = Date.now();
+    queueSave();
+  }
+}
+
+/* --- Autonomous Maintenance --- */
+function updateOnlineCount() {
+  const count = Store.online.size;
+  document.getElementById('hdr-players').innerText = count;
+  
+  if(count === 0) {
+    // Zero-Player Listener
+    toast('ZERO PLAYERS DETECTED. BACKUP IN 2 MINS.');
+    backupTimer = setTimeout(() => {
+      ws.send("drivebackup backup");
+      toast('AUTONOMOUS BACKUP TRIGGERED');
+    }, 120000);
+  } else {
+    if(backupTimer) {
+      clearTimeout(backupTimer);
+      backupTimer = null;
+      toast('BACKUP ABORTED (PLAYER JOINED)');
     }
   }
+}
 
-  function toFormData(obj) {
-    const fd = new FormData();
-    for (const [k, v] of Object.entries(obj)) fd.append(k, String(v ?? ''));
-    return fd;
+document.getElementById('cmd').onkeydown = e => {
+  if(e.key === 'Enter' && e.target.value) {
+    ws.send(e.target.value);
+    e.target.value = '';
   }
+};
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // § 2. CONFIG MANAGER
-  // ═══════════════════════════════════════════════════════════════════════
+/* --- UI Navigation --- */
+function nav(id) {
+  document.querySelectorAll('.tab').forEach(e => e.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(e => e.classList.remove('active'));
+  document.getElementById('tab-'+id).classList.add('active');
+  event.target.classList.add('active');
+  if(id === 'players') renderPlayers();
+}
 
-  async function loadConfig() {
-    try {
-      const raw   = await apiGet('fs/read', { path: CFG_PATH });
-      const saved = JSON.parse(raw);
-      // Deep-merge with defaults so new keys always exist
-      S.config = {
-        ...DEFAULT_CONFIG,
-        ...saved,
-        maintenance: { ...DEFAULT_CONFIG.maintenance, ...(saved.maintenance ?? {}) },
-        players:     saved.players  ?? {},
-        plugins:     saved.plugins  ?? {},
-      };
-    } catch {
-      S.config = structuredClone(DEFAULT_CONFIG);
-      await saveConfigNow();   // Bootstrap the file
-    }
+function toast(msg) {
+  const d = document.createElement('div'); d.className = 'toast'; d.innerText = msg;
+  document.getElementById('toasts').appendChild(d);
+  setTimeout(() => d.remove(), 3000);
+}
+
+async function mc(act) {
+  await fetch(API+'/api/mc/control', { method:'POST', body: new URLSearchParams({action: act}) });
+  toast('SIGNAL SENT: ' + act.toUpperCase());
+}
+
+/* --- Advanced Player Analytics --- */
+function renderPlayers() {
+  const list = document.getElementById('player-list');
+  list.innerHTML = '';
+  
+  // IP Alt matching logic
+  const ipMap = {};
+  Object.values(Store.players).forEach(p => {
+    (p.ips ||[]).forEach(ip => {
+      if(!ipMap[ip]) ipMap[ip] = [];
+      ipMap[ip].push(p.name);
+    });
+  });
+
+  Object.entries(Store.players).sort((a,b) => b[1].lastSeen - a[1].lastSeen).forEach(([uuid, p]) => {
+    // Check alts
+    let alts = new Set();
+    (p.ips || []).forEach(ip => {
+      ipMap[ip].forEach(n => { if(n !== p.name) alts.add(n); });
+    });
+
+    const card = document.createElement('div');
+    card.className = 'player-card';
+    const hours = (p.playtime / 3600000).toFixed(1);
+    
+    card.innerHTML = `
+      <img class="player-head" src="https://crafatar.com/avatars/${uuid}?size=48&overlay" onerror="this.src='data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='">
+      <div class="player-info">
+        <div class="player-name">${p.name} ${Store.online.has(p.name) ? '[ONLINE]' : ''}</div>
+        <div class="player-meta">UUID: ${uuid} | PLAYTIME: ${hours}H | LAST SEEN: ${new Date(p.lastSeen).toLocaleString()}</div>
+        <div class="player-meta">IPS: ${(p.ips||[]).join(', ')}</div>
+        ${alts.size > 0 ? `<div class="alts-warn">⚠️ SHARED IP DETECTED: ${Array.from(alts).join(', ')}</div>` : ''}
+      </div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+/* --- High-Speed File Manager --- */
+async function loadFiles(dir) {
+  if(dir === '..') currentPath = currentPath.split('/').slice(0,-1).join('/');
+  else if(dir !== '') currentPath = currentPath ? currentPath + '/' + dir : dir;
+  else currentPath = '';
+  
+  document.getElementById('current-path').innerText = '/' + currentPath;
+  const list = document.getElementById('file-list');
+  list.innerHTML = 'LOADING...';
+  
+  const r = await fetch(API+'/api/fs/list?path=' + encodeURIComponent(currentPath));
+  const items = await r.json();
+  
+  list.innerHTML = '';
+  items.forEach(f => {
+    const row = document.createElement('div');
+    row.className = 'file-row';
+    row.innerHTML = `
+      <div style="display:flex; gap:10px; align-items:center;">
+        <span>${f.is_dir ? '📁' : '📄'}</span>
+        <span>${f.name}</span>
+      </div>
+      <div class="file-row-actions">
+        ${!f.is_dir ? `<button onclick="event.stopPropagation(); openEditor('${f.name}')">EDIT</button>` : ''}
+        <button onclick="event.stopPropagation(); renameFile('${f.name}')">REN</button>
+        <button class="danger" onclick="event.stopPropagation(); deleteFile('${f.name}', this)">DEL</button>
+      </div>
+    `;
+    if(f.is_dir) row.onclick = () => loadFiles(f.name);
+    list.appendChild(row);
+  });
+}
+
+async function deleteFile(name, btn) {
+  const row = btn.closest('.file-row');
+  row.style.display = 'none'; // Optimistic remove
+  const p = currentPath ? currentPath+'/'+name : name;
+  await fetch(API+'/api/fs/delete', { method:'POST', body: new URLSearchParams({path: p}) });
+  toast('DELETED: ' + name);
+}
+
+async function renameFile(oldName) {
+  const newName = prompt('NEW NAME:', oldName);
+  if(!newName || newName === oldName) return;
+  const p = currentPath ? currentPath+'/'+oldName : oldName;
+  await fetch(API+'/api/fs/rename', { method:'POST', body: new URLSearchParams({path: p, new_name: newName}) });
+  loadFiles('');
+}
+
+async function newFile(isDir) {
+  const name = prompt(isDir ? 'DIR NAME:' : 'FILE NAME:');
+  if(!name) return;
+  await fetch(API+'/api/fs/new', { method:'POST', body: new URLSearchParams({path: currentPath, name: name, is_dir: isDir}) });
+  loadFiles('');
+}
+
+/* --- Editor Buffer --- */
+async function openEditor(name) {
+  editingPath = currentPath ? currentPath+'/'+name : name;
+  document.getElementById('editor-file').innerText = editingPath;
+  document.getElementById('editor').value = 'LOADING...';
+  document.getElementById('editor-container').style.display = 'flex';
+  
+  const r = await fetch(API+'/api/fs/read?path=' + encodeURIComponent(editingPath));
+  document.getElementById('editor').value = await r.text();
+}
+
+async function saveEditor() {
+  const content = document.getElementById('editor').value;
+  await fetch(API+'/api/fs/write', { method:'POST', body: new URLSearchParams({path: editingPath, content: content}) });
+  toast('FILE WRITTEN');
+}
+function closeEditor() { document.getElementById('editor-container').style.display = 'none'; }
+
+// Tab support in editor
+document.getElementById('editor').addEventListener('keydown', function(e) {
+  if (e.key == 'Tab') {
+    e.preventDefault();
+    const start = this.selectionStart, end = this.selectionEnd;
+    this.value = this.value.substring(0, start) + "    " + this.value.substring(end);
+    this.selectionStart = this.selectionEnd = start + 4;
   }
-
-  /** Schedule a config save with debounce to avoid thrashing disk on rapid events. */
-  function markDirty() {
-    S.cfgDirty = true;
-    clearTimeout(S.cfgTimer);
-    S.cfgTimer = setTimeout(saveConfigNow, CFG_DEBOUNCE_MS);
-  }
-
-  async function saveConfigNow() {
-    if (!S.config) return;
-    try {
-      await apiPost('fs/write', { path: CFG_PATH, content: JSON.stringify(S.config, null, 2) });
-      S.cfgDirty = false;
-    } catch (e) {
-      console.error('[Config] Write failed:', e);
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § 3. WEBSOCKET CLIENT  (auto-reconnect with exponential back-off)
-  // ═══════════════════════════════════════════════════════════════════════
-
-  function connectWS() {
-    if (S.ws?.readyState <= WebSocket.OPEN) return;
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    S.ws = new WebSocket(`${proto}://${location.host}/ws?pass=${encodeURIComponent(S.pass)}`);
-
-    S.ws.onopen = () => {
-      S.wsRetryDelay = WS_RETRY_BASE;
-      panelLog('Console connected.', 'info');
-    };
-
-    S.ws.onmessage = ({ data }) => {
-      appendConsole(data);
-      parseServerLine(data);
-    };
-
-    S.ws.onclose = () => {
-      S.serverOnline = false;
-      syncStatusBar();
-      // Jitter to prevent thundering herd on multi-tab setups
-      const jitter = Math.random() * 500;
-      const delay  = Math.min(S.wsRetryDelay, WS_RETRY_MAX) + jitter;
-      S.wsRetryDelay = Math.min(S.wsRetryDelay * 1.6, WS_RETRY_MAX);
-      setTimeout(connectWS, delay);
-    };
-
-    S.ws.onerror = () => S.ws.close();
-  }
-
-  function sendWS(cmd) {
-    if (S.ws?.readyState === WebSocket.OPEN) S.ws.send(cmd);
-    else panelLog('Console not connected.', 'warn');
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § 4. LOG PARSER  (Bukkit/Paper/Purpur output)
-  // ═══════════════════════════════════════════════════════════════════════
-  //  Line shapes (Paper/Purpur):
-  //  [HH:mm:ss INFO]: username joined the game
-  //  [HH:mm:ss INFO]: username left the game
-  //  [HH:mm:ss INFO]: UUID of player username is <uuid>
-  //  [HH:mm:ss INFO]: username[/1.2.3.4:port] logged in with entity id ...
-  //  [HH:mm:ss INFO]: Done (Xs)! For help, type "help"
-  //  [HH:mm:ss INFO]: There are N of a max of N players online: ...
-
-  const RE = {
-    DONE:    /\bDone \(/,
-    UUID:    /UUID of player (\S+) is ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/,
-    LOGIN:   /(\S+)\[\/(\d{1,3}(?:\.\d{1,3}){3}):\d+\] logged in/,
-    JOIN:    /\bINFO\b.*?: (\S+) joined the game/,
-    LEAVE:   /\bINFO\b.*?: (\S+) left the game/,
-    ONLINE:  /There are (\d+)(?: of a max(?: of)? \d+)? players online/,
-    STOPPED: /Stopping the server|Server stopped|Stopping server/,
-  };
-
-  function parseServerLine(line) {
-    let m;
-
-    // ── Server ready ──────────────────────────────────────────
-    if (RE.DONE.test(line)) {
-      S.serverOnline = true;
-      S.uptimeStart  = Date.now();
-      syncStatusBar();
-      return;
-    }
-
-    // ── Server stopped ────────────────────────────────────────
-    if (RE.STOPPED.test(line)) {
-      S.serverOnline = false;
-      S.onlinePlayers.clear();
-      S.playerCount = 0;
-      syncStatusBar();
-      return;
-    }
-
-    // ── UUID resolution ───────────────────────────────────────
-    if ((m = RE.UUID.exec(line))) {
-      const [, username, uuid] = m;
-      const session = S.onlinePlayers.get(username);
-      if (session) session.uuid = uuid;
-      ensurePlayerRecord(uuid, username);
-      return;
-    }
-
-    // ── IP capture (fires before JOIN in most server versions) ─
-    if ((m = RE.LOGIN.exec(line))) {
-      const [, username, ip] = m;
-      const existing = S.onlinePlayers.get(username);
-      if (existing) existing.ip = ip;
-      else S.onlinePlayers.set(username, { joinTime: Date.now(), uuid: null, ip });
-      return;
-    }
-
-    // ── Player join ───────────────────────────────────────────
-    if ((m = RE.JOIN.exec(line))) {
-      const [, username] = m;
-      if (!S.onlinePlayers.has(username))
-        S.onlinePlayers.set(username, { joinTime: Date.now(), uuid: null, ip: null });
-      const prev     = S.playerCount;
-      S.playerCount  = S.onlinePlayers.size;
-      onCountChange(S.playerCount, prev);
-      syncStatusBar();
-      renderPlayerTable();
-      return;
-    }
-
-    // ── Player leave ──────────────────────────────────────────
-    if ((m = RE.LEAVE.exec(line))) {
-      const [, username] = m;
-      const session = S.onlinePlayers.get(username);
-      if (session) { finaliseSession(username, session); S.onlinePlayers.delete(username); }
-      const prev    = S.playerCount;
-      S.playerCount = S.onlinePlayers.size;
-      onCountChange(S.playerCount, prev);
-      syncStatusBar();
-      renderPlayerTable();
-      return;
-    }
-
-    // ── /list command response ────────────────────────────────
-    if ((m = RE.ONLINE.exec(line))) {
-      S.playerCount = parseInt(m[1], 10);
-      syncStatusBar();
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § 5. PLAYER ANALYTICS ENGINE
-  // ═══════════════════════════════════════════════════════════════════════
-
-  /** Upsert a player record and record their current IP. */
-  function ensurePlayerRecord(uuid, username) {
-    const now = Date.now();
-    if (!S.config.players[uuid]) {
-      S.config.players[uuid] = {
-        username, firstSeen: now, lastSeen: now,
-        totalPlaytime: 0, ips: [], sessions: [],
-      };
-    } else {
-      S.config.players[uuid].username = username;
-      S.config.players[uuid].lastSeen = now;
-    }
-    // Append IP if not already recorded
-    const ip = S.onlinePlayers.get(username)?.ip;
-    if (ip) {
-      const ips = S.config.players[uuid].ips;
-      if (!ips.includes(ip)) ips.push(ip);
-    }
-    markDirty();
-  }
-
-  /** Called when a player disconnects — writes session data. */
-  function finaliseSession(username, session) {
-    const uuid = session.uuid ?? findUUIDByUsername(username);
-    if (!uuid) return;
-    const p = S.config.players[uuid];
-    if (!p) return;
-    const elapsed        = Date.now() - session.joinTime;
-    p.totalPlaytime     += elapsed;
-    p.lastSeen           = Date.now();
-    p.sessions.push({ start: session.joinTime, end: Date.now(), ip: session.ip });
-    if (p.sessions.length > MAX_SESSIONS) p.sessions = p.sessions.slice(-MAX_SESSIONS);
-    markDirty();
-  }
-
-  function findUUIDByUsername(username) {
-    const lower = username.toLowerCase();
-    for (const [uuid, data] of Object.entries(S.config.players))
-      if (data.username?.toLowerCase() === lower) return uuid;
-    return null;
-  }
-
-  /**
-   * Alt-account detection via Union-Find clustering.
-   *
-   * Algorithm:
-   *   1. Build an inverted IP index:  ip → Set<uuid>
-   *   2. Union-Find: any two accounts sharing ≥1 IP are unioned into the same component.
-   *   3. Components with size > 1 are returned as "alt clusters".
-   *
-   * Time complexity: O(A · I · α(A)) where A = accounts, I = avg IPs per account.
-   * Space complexity: O(A + I_total)
-   */
-  function detectAlts() {
-    const players  = S.config.players;
-    const ipIndex  = {};                   // ip → uuid[]
-
-    for (const [uuid, data] of Object.entries(players)) {
-      for (const ip of (data.ips ?? [])) {
-        (ipIndex[ip] ??= []).push(uuid);
-      }
-    }
-
-    // Union-Find with path compression
-    const parent = {};
-    const rank   = {};
-    function find(x) {
-      parent[x] ??= x; rank[x] ??= 0;
-      if (parent[x] !== x) parent[x] = find(parent[x]);
-      return parent[x];
-    }
-    function union(a, b) {
-      const ra = find(a), rb = find(b);
-      if (ra === rb) return;
-      if ((rank[ra] ?? 0) < (rank[rb] ?? 0)) { parent[ra] = rb; }
-      else if ((rank[ra] ?? 0) > (rank[rb] ?? 0)) { parent[rb] = ra; }
-      else { parent[rb] = ra; rank[ra] = (rank[ra] ?? 0) + 1; }
-    }
-
-    for (const uuids of Object.values(ipIndex)) {
-      for (let i = 1; i < uuids.length; i++) union(uuids[0], uuids[i]);
-    }
-
-    // Group by root
-    const clusters = {};
-    for (const uuid of Object.keys(players)) {
-      if (!(players[uuid].ips?.length)) continue;
-      const root = find(uuid);
-      (clusters[root] ??= []).push(uuid);
-    }
-
-    return Object.values(clusters)
-      .filter(c => c.length > 1)
-      .map(cluster => ({
-        accounts: cluster.map(uuid => {
-          const otherIps = cluster
-            .filter(u => u !== uuid)
-            .flatMap(u => players[u]?.ips ?? []);
-          return {
-            uuid,
-            username:   players[uuid]?.username ?? '?',
-            ips:        players[uuid]?.ips ?? [],
-            sharedIps:  (players[uuid]?.ips ?? []).filter(ip => otherIps.includes(ip)),
-          };
-        }),
-      }));
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § 6. MAINTENANCE BOT  (Zero-Player Listener)
-  // ═══════════════════════════════════════════════════════════════════════
-
-  function onCountChange(newCount, prevCount) {
-    if (!S.config?.maintenance?.autoBackup) return;
-
-    if (prevCount > 0 && newCount === 0) {
-      const delay = (S.config.maintenance.backupDelay ?? 120) * 1_000;
-      panelLog(`[Maintenance] Server empty. Backup queued in ${delay / 1_000}s.`, 'warn');
-      S.zeroTimer = setTimeout(() => {
-        panelLog('[Maintenance] Executing /drivebackup backup …', 'warn');
-        sendWS('/drivebackup backup');
-        S.zeroTimer = null;
-      }, delay);
-
-    } else if (newCount > 0 && S.zeroTimer) {
-      clearTimeout(S.zeroTimer);
-      S.zeroTimer = null;
-      panelLog('[Maintenance] Backup cancelled — players rejoined.', 'info');
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § 7. PLUGIN ENGINE  (Modrinth-native, version-aware)
-  // ═══════════════════════════════════════════════════════════════════════
-
-  const PluginEngine = {
-
-    /**
-     * Search Modrinth with facet-filtered results for plugin type, loader, and game version.
-     * Results are cached for 60s to reduce Modrinth API pressure.
-     */
-    async search(query, loader, gameVersion) {
-      const facets = JSON.stringify([
-        ['project_type:plugin'],
-        [`categories:${loader}`],
-        [`versions:${gameVersion}`],
-      ]);
-      const url = `${MODRINTH}/search?query=${encodeURIComponent(query)}`
-                + `&facets=${encodeURIComponent(facets)}&limit=20&index=relevance`;
-      try {
-        const data = await apiGet(url, null, { external: true, cache: true, ttl: 60_000 });
-        return data.hits ?? [];
-      } catch (e) {
-        panelLog(`[Plugins] Search error: ${e.message}`, 'error');
-        return [];
-      }
-    },
-
-    /**
-     * Fetch all versions of a project that match (loader × gameVersion).
-     * Sorted by date_published desc (latest first) by the Modrinth API.
-     */
-    async getVersions(projectId, loader, gameVersion) {
-      const url = `${MODRINTH}/project/${projectId}/version`
-                + `?loaders=["${loader}"]&game_versions=["${gameVersion}"]`;
-      try {
-        return await apiGet(url, null, { external: true, cache: true, ttl: 120_000 }) ?? [];
-      } catch {
-        return [];
-      }
-    },
-
-    /**
-     * Dependency check: given a version object, resolve its required dependencies
-     * against already-installed plugins. Returns an array of missing dep project IDs.
-     */
-    async getMissingDeps(version, loader, gameVersion) {
-      const required = (version.dependencies ?? []).filter(d => d.dependency_type === 'required');
-      const missing  = [];
-      for (const dep of required) {
-        const pid = dep.project_id;
-        if (!pid || S.config.plugins[pid]) continue;
-        missing.push(pid);
-      }
-      return missing;
-    },
-
-    /** Install a plugin from a Modrinth search hit, with dependency pre-check. */
-    async install(project, loader, gameVersion) {
-      const versions = await this.getVersions(project.project_id, loader, gameVersion);
-      if (!versions.length) {
-        panelLog(`[Plugins] No compatible version for "${project.title}" (${loader} / ${gameVersion})`, 'error');
-        return false;
-      }
-
-      const latest  = versions[0];
-      const jarFile = latest.files.find(f => f.primary) ?? latest.files[0];
-      if (!jarFile) { panelLog(`[Plugins] No .jar found for "${project.title}"`, 'error'); return false; }
-
-      // Dependency pre-check
-      const missing = await this.getMissingDeps(latest, loader, gameVersion);
-      if (missing.length) {
-        panelLog(`[Plugins] "${project.title}" has ${missing.length} unresolved dep(s): ${missing.join(', ')}`, 'warn');
-        if (!confirm(`"${project.title}" requires ${missing.length} dependency plugin(s).\n` +
-                     `IDs: ${missing.join(', ')}\n\nInstall anyway?`)) return false;
-      }
-
-      // Optimistic update — show as "installing" immediately
-      const record = {
-        name: project.title, version: latest.version_number,
-        filename: jarFile.filename, projectId: project.project_id,
-        versionId: latest.id, installedAt: Date.now(), status: 'installing',
-      };
-      S.config.plugins[project.project_id] = record;
-      renderInstalledPlugins();
-
-      try {
-        await apiPost('plugins/install', {
-          url: jarFile.url, filename: jarFile.filename,
-          project_id: project.project_id, version_id: latest.id, name: project.title,
-        });
-        record.status = 'installed';
-        markDirty();
-        panelLog(`[Plugins] ✓ Installed ${project.title} v${latest.version_number}`, 'info');
-        renderInstalledPlugins();
-        return true;
-      } catch (e) {
-        delete S.config.plugins[project.project_id];
-        renderInstalledPlugins();
-        panelLog(`[Plugins] Install failed: ${e.message}`, 'error');
-        return false;
-      }
-    },
-
-    /** Compare all installed plugin versionIds against Modrinth latest — return stale entries. */
-    async checkUpdates(loader, gameVersion) {
-      const updates = [];
-      for (const [pid, installed] of Object.entries(S.config.plugins)) {
-        try {
-          const versions = await this.getVersions(pid, loader, gameVersion);
-          if (!versions.length) continue;
-          const latest = versions[0];
-          if (latest.id !== installed.versionId)
-            updates.push({ pid, installed, latest });
-        } catch { /* unreachable project — skip */ }
-      }
-      return updates;
-    },
-
-    /** Delete old jar and download the new one. */
-    async updatePlugin(pid, loader, gameVersion) {
-      const installed = S.config.plugins[pid];
-      if (!installed) return;
-      const versions = await this.getVersions(pid, loader, gameVersion);
-      if (!versions.length) { panelLog(`[Plugins] No update found for ${installed.name}`, 'warn'); return; }
-      const latest  = versions[0];
-      const jarFile = latest.files.find(f => f.primary) ?? latest.files[0];
-      if (!jarFile) return;
-
-      try { await apiPost('fs/delete', { path: `plugins/${installed.filename}` }); } catch { /* already gone */ }
-
-      await apiPost('plugins/install', {
-        url: jarFile.url, filename: jarFile.filename,
-        project_id: pid, version_id: latest.id, name: installed.name,
-      });
-
-      Object.assign(S.config.plugins[pid], {
-        version: latest.version_number, versionId: latest.id, filename: jarFile.filename,
-      });
-      markDirty();
-      panelLog(`[Plugins] ↑ ${installed.name} updated to v${latest.version_number}`, 'info');
-      renderInstalledPlugins();
-    },
-
-    async uninstall(pid) {
-      const p = S.config.plugins[pid];
-      if (!p) return;
-      if (!confirm(`Remove ${p.name}?`)) return;
-      try { await apiPost('fs/delete', { path: `plugins/${p.filename}` }); } catch { /* ok */ }
-      delete S.config.plugins[pid];
-      markDirty();
-      panelLog(`[Plugins] Removed ${p.name}`, 'warn');
-      renderInstalledPlugins();
-    },
-  };
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § 8. FILE MANAGER  (CRUD + in-memory editor buffer)
-  // ═══════════════════════════════════════════════════════════════════════
-
-  const FM = {
-    cwd: '',   // current working directory (relative to BASE_DIR)
-
-    async list(path = '') {
-      this.cwd = path;
-      try {
-        const items = await apiGet('fs/list', { path });
-        renderFileList(items, path);
-      } catch (e) {
-        panelLog(`[Files] List error: ${e.message}`, 'error');
-      }
-    },
-
-    async openEditor(path) {
-      try {
-        const content    = await apiGet('fs/read', { path });
-        S.editorPath     = path;
-        S.editorDirty    = false;
-        $('editor-area').value         = content;
-        $('editor-filename').textContent = baseName(path);
-        $('editor-panel').style.display = 'flex';
-        $('file-list').style.display    = 'none';
-        $('editor-area').oninput = () => {
-          S.editorDirty = true;
-          $('editor-filename').textContent = baseName(path) + ' *';
-        };
-      } catch (e) {
-        panelLog(`[Files] Cannot open "${path}": ${e.message}`, 'error');
-      }
-    },
-
-    closeEditor() {
-      if (S.editorDirty && !confirm('Unsaved changes — close anyway?')) return;
-      $('editor-panel').style.display = 'none';
-      $('file-list').style.display    = '';
-      S.editorPath = null; S.editorDirty = false;
-    },
-
-    async saveEditor() {
-      if (!S.editorPath) return;
-      const content   = $('editor-area').value;
-      // Optimistic: mark clean immediately so user gets instant feedback
-      S.editorDirty   = false;
-      $('editor-filename').textContent = baseName(S.editorPath);
-      try {
-        await apiPost('fs/write', { path: S.editorPath, content });
-        panelLog(`[Files] Saved ${S.editorPath}`, 'info');
-      } catch (e) {
-        S.editorDirty = true;
-        $('editor-filename').textContent = baseName(S.editorPath) + ' *';
-        panelLog(`[Files] Save failed: ${e.message}`, 'error');
-      }
-    },
-
-    async delete(path) {
-      if (!confirm(`Delete "${baseName(path)}"?`)) return;
-      await apiPost('fs/delete', { path });
-      this.list(this.cwd);
-    },
-
-    async rename(path) {
-      const newName = prompt('New name:', baseName(path));
-      if (!newName || newName === baseName(path)) return;
-      await apiPost('fs/rename', { path, new_name: newName });
-      this.list(this.cwd);
-    },
-
-    async newFolder() {
-      const name = prompt('Folder name:');
-      if (!name) return;
-      await apiPost('fs/new-folder', { path: this.cwd, name });
-      this.list(this.cwd);
-    },
-
-    async newFile() {
-      const name = prompt('File name:');
-      if (!name) return;
-      await apiPost('fs/new-file', { path: this.cwd, name });
-      this.list(this.cwd);
-    },
-
-    async upload(inputEl) {
-      const file = inputEl.files[0];
-      if (!file) return;
-      const fd = new FormData();
-      fd.append('path', this.cwd);
-      fd.append('file', file);
-      try {
-        await fetch('/api/fs/upload', { method: 'POST', body: fd });
-        panelLog(`[Files] Uploaded "${file.name}"`, 'info');
-        this.list(this.cwd);
-      } catch (e) {
-        panelLog(`[Files] Upload failed: ${e.message}`, 'error');
-      }
-      inputEl.value = '';
-    },
-
-    download(path) { window.open(`/api/fs/download?path=${encodeURIComponent(path)}`, '_blank'); },
-  };
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § 9. STATUS POLLER  (header stats every POLL_MS)
-  // ═══════════════════════════════════════════════════════════════════════
-
-  function startPoller() {
-    pollTick();
-    S.pollTimer = setInterval(pollTick, POLL_MS);
-    setInterval(syncStatusBar, 1_000);   // 1-second uptime counter
-  }
-
-  async function pollTick() {
-    try {
-      // Disk usage is cheap and lets us confirm the server API is alive
-      await apiGet('fs/disk');
-    } catch { /* non-critical */ }
-    syncStatusBar();
-  }
-
-  function syncStatusBar() {
-    const cfg = S.config ?? {};
-    $('st-ip').textContent      = `IP: ${cfg.serverIp      || '—'}`;
-    $('st-version').textContent = `Version: ${cfg.serverVersion || '—'}`;
-    $('st-players').textContent = `Players: ${S.playerCount}`;
-
-    const stEl = $('st-status');
-    stEl.textContent = S.serverOnline ? '● ONLINE' : '● OFFLINE';
-    stEl.className   = S.serverOnline ? 'online'   : 'offline';
-
-    const ub = $('online-badge');
-    if (ub) ub.textContent = `${S.playerCount} Online`;
-
-    if (S.uptimeStart && S.serverOnline) {
-      const s = Math.floor((Date.now() - S.uptimeStart) / 1000);
-      $('st-uptime').textContent =
-        `Uptime: ${pad(Math.floor(s/3600))}:${pad(Math.floor((s%3600)/60))}:${pad(s%60)}`;
-    } else { $('st-uptime').textContent = ''; }
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § 10. UI RENDERERS
-  // ═══════════════════════════════════════════════════════════════════════
-
-  function appendConsole(raw) {
-    const out  = $('console-output');
-    const line = document.createElement('div');
-    // Colourize without innerHTML injection risk
-    let text = escHtml(raw);
-    text = text.replace(/(ERROR|WARN|FATAL)/g, '<b class="c-err">$1</b>');
-    text = text.replace(/(joined the game)/g,  '<span class="c-join">$1</span>');
-    text = text.replace(/(left the game)/g,    '<span class="c-leave">$1</span>');
-    text = text.replace(/(\[Panel\])/g,        '<span class="c-panel">$1</span>');
-    line.innerHTML = text;
-    out.appendChild(line);
-    if (++S.consoleLine > MAX_CONSOLE) { out.removeChild(out.firstChild); S.consoleLine--; }
-    out.scrollTop = out.scrollHeight;
-  }
-
-  /** Render Modrinth search results. */
-  function renderSearchResults(hits) {
-    const box = $('plugin-results');
-    if (!hits.length) { box.innerHTML = '<div class="empty">No results for this query / version.</div>'; return; }
-    const loader  = $('plugin-loader').value;
-    const version = S.config?.serverVersion ?? '1.21.1';
-    box.innerHTML = hits.map(h => `
-      <div class="plugin-hit">
-        ${h.icon_url
-          ? `<img src="${escHtml(h.icon_url)}" class="plugin-icon" onerror="this.style.display='none'">`
-          : `<div class="plugin-icon-ph"></div>`}
-        <div class="plugin-meta">
-          <b>${escHtml(h.title)}</b>
-          <span class="badge">${escHtml(h.latest_version ?? '')}</span>
-          <div class="sub">${escHtml((h.description ?? '').slice(0, 90))}…</div>
+});
+
+/* --- Plugin Engine (Modrinth) --- */
+async function searchPlugins() {
+  const q = document.getElementById('pl-search').value;
+  const ver = document.getElementById('pl-ver').value;
+  if(!q) return;
+  
+  const list = document.getElementById('pl-list');
+  list.innerHTML = 'QUERYING MODRINTH...';
+  
+  try {
+    const res = await fetch(`https://api.modrinth.com/v2/search?query=${encodeURIComponent(q)}&facets=[["project_type:plugin"]]&limit=15`);
+    const data = await res.json();
+    list.innerHTML = '';
+    
+    data.hits.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'player-card';
+      card.innerHTML = `
+        <div class="player-info">
+          <div class="player-name">${p.title}</div>
+          <div class="player-meta">${p.description}</div>
+          <div class="player-meta" style="margin-top:4px;">DL: ${p.downloads} | AUTH: ${p.author}</div>
         </div>
-        <div class="plugin-dl">↓${fmtNum(h.downloads ?? 0)}</div>
-        <button onclick="MCPanel.plugins.install(${safeJson(h)},${safeStr(loader)},${safeStr(version)})">Install</button>
-      </div>`).join('');
-  }
+        <button onclick="installPlugin('${p.project_id}', '${ver}')">INSTALL</button>
+      `;
+      list.appendChild(card);
+    });
+  } catch { list.innerHTML = 'QUERY FAILED'; }
+}
 
-  function renderInstalledPlugins() {
-    const tbody = $('plugin-tbody');
-    const rows  = Object.entries(S.config?.plugins ?? {});
-    tbody.innerHTML = rows.length ? rows.map(([pid, p]) => `
-      <tr>
-        <td>${escHtml(p.name)}${p.status === 'installing' ? ' <span class="badge warn">installing…</span>' : ''}</td>
-        <td><span class="badge">${escHtml(p.version)}</span></td>
-        <td class="sub">${fmtDate(p.installedAt)}</td>
-        <td>
-          <button onclick="MCPanel.plugins.updateOne(${safeStr(pid)})">↑ Update</button>
-          <button onclick="MCPanel.plugins.uninstall(${safeStr(pid)})" class="btn-danger">Remove</button>
-        </td>
-      </tr>`) .join('')
-    : '<tr><td colspan="4" class="empty">No plugins installed.</td></tr>';
-  }
-
-  function renderPlayerTable(filter = '') {
-    const tbody  = $('player-tbody');
-    const all    = Object.entries(S.config?.players ?? {});
-    const lower  = filter.toLowerCase();
-    const rows   = all.filter(([, p]) => !lower || p.username?.toLowerCase().includes(lower));
-
-    tbody.innerHTML = rows.length ? rows.map(([uuid, p]) => {
-      const isOnline = [...S.onlinePlayers.entries()].some(
-        ([u, s]) => s.uuid === uuid || u.toLowerCase() === p.username?.toLowerCase()
-      );
-      const ipTrim = (p.ips ?? []).length > 3
-        ? p.ips.slice(-3).join(', ') + ` +${p.ips.length - 3}`
-        : (p.ips ?? []).join(', ') || '—';
-      return `
-        <tr>
-          <td>
-            <img class="head" src="${MINOTAR}/${encodeURIComponent(p.username ?? 'Steve')}/24"
-                 onerror="this.style.display='none'">
-            ${escHtml(p.username ?? '?')}
-          </td>
-          <td class="uuid">${uuid}</td>
-          <td class="sub">${fmtDate(p.firstSeen)}</td>
-          <td class="sub">${fmtDate(p.lastSeen)}</td>
-          <td>${fmtPlaytime(p.totalPlaytime ?? 0)}</td>
-          <td class="sub">${escHtml(ipTrim)}</td>
-          <td><span class="${isOnline ? 'online' : 'offline'}">${isOnline ? '● On' : '○ Off'}</span></td>
-        </tr>`;
-    }).join('')
-    : '<tr><td colspan="7" class="empty">No players tracked yet.</td></tr>';
-  }
-
-  function renderAltResults(clusters) {
-    const panel = $('alts-panel');
-    if (!clusters.length) {
-      panel.innerHTML = '<span class="c-join">✓ No alt clusters detected.</span>';
-      panel.style.display = 'block';
-      return;
-    }
-    panel.innerHTML = `<div class="c-leave">⚠ ${clusters.length} potential alt cluster(s):</div>` +
-      clusters.map((c, i) => `
-        <div class="alt-cluster">
-          <b>Cluster ${i + 1}</b>
-          ${c.accounts.map(a => `
-            <div class="alt-row">
-              <img class="head" src="${MINOTAR}/${encodeURIComponent(a.username)}/16" onerror="this.style.display='none'">
-              <b>${escHtml(a.username)}</b>
-              <span class="uuid">${a.uuid.slice(0, 8)}…</span>
-              — shared IPs: <code class="c-leave">${escHtml(a.sharedIps.join(', ') || 'none')}</code>
-            </div>`).join('')}
-        </div>`).join('');
-    panel.style.display = 'block';
-  }
-
-  function renderFileList(items, path) {
-    $('file-path').textContent = '/' + (path || '(root)');
-    const tbody = $('file-tbody');
-    const upRow = path
-      ? `<tr><td colspan="3"><a href="#" onclick="MCPanel.files.list(${safeStr(parentDir(path))});return false" class="up-link">↑ ..</a></td></tr>`
-      : '';
-    tbody.innerHTML = upRow + (items ?? []).map(item => {
-      const fullPath = (path ? path + '/' : '') + item.name;
-      return `
-        <tr>
-          <td>${item.is_dir
-            ? `📁 <a href="#" onclick="MCPanel.files.list(${safeStr(fullPath)});return false" class="dir-link">${escHtml(item.name)}</a>`
-            : `📄 ${escHtml(item.name)}`}
-          </td>
-          <td class="sub">${item.is_dir ? '—' : fmtSize(item.size)}</td>
-          <td class="file-actions">
-            ${!item.is_dir ? `
-              <button onclick="MCPanel.files.openEditor(${safeStr(fullPath)})">Edit</button>
-              <button onclick="MCPanel.files.download(${safeStr(fullPath)})">↓</button>` : ''}
-            <button onclick="MCPanel.files.rename(${safeStr(fullPath)})">✎</button>
-            <button onclick="MCPanel.files.delete(${safeStr(fullPath)})" class="btn-danger">✕</button>
-          </td>
-        </tr>`;
-    }).join('');
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § SETTINGS  (load ↔ save UI ↔ config.json)
-  // ═══════════════════════════════════════════════════════════════════════
-
-  function loadSettingsUI() {
-    if (!S.config) return;
-    $('s-ip').value            = S.config.serverIp ?? '';
-    $('s-version').value       = S.config.serverVersion ?? '1.21.1';
-    $('s-autobackup').checked  = S.config.maintenance?.autoBackup ?? true;
-    $('s-delay').value         = S.config.maintenance?.backupDelay ?? 120;
-  }
-
-  function saveSettings() {
-    S.config.serverIp                    = $('s-ip').value.trim();
-    S.config.serverVersion               = $('s-version').value.trim();
-    S.config.maintenance.autoBackup      = $('s-autobackup').checked;
-    S.config.maintenance.backupDelay     = parseInt($('s-delay').value, 10) || 120;
-    saveConfigNow();
-    $('settings-msg').textContent = '✓ Settings saved';
-    setTimeout(() => { $('settings-msg').textContent = ''; }, 2500);
-    syncStatusBar();
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § AUTH & BOOT
-  // ═══════════════════════════════════════════════════════════════════════
-
-  async function auth() {
-    const pass = $('pass-input').value;
-    try {
-      const fd = new FormData(); fd.append('pass', pass);
-      const r  = await fetch('/api/auth', { method: 'POST', body: fd });
-      if (!r.ok) throw new Error('Unauthorized');
-      S.pass = pass;
-      $('auth').style.display = 'none';
-      $('app').style.display  = 'flex';
-      await boot();
-    } catch {
-      $('auth-err').textContent = '✕ Wrong password';
-    }
-  }
-
-  async function boot() {
-    await loadConfig();
-    loadSettingsUI();
-    connectWS();
-    startPoller();
-    renderInstalledPlugins();
-    renderPlayerTable();
-    FM.list('');
-    syncStatusBar();
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § TAB CONTROLLER
-  // ═══════════════════════════════════════════════════════════════════════
-
-  function switchTab(name, btn) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
-    $(`tab-${name}`).classList.add('active');
-    btn.classList.add('active');
-    if (name === 'files')    FM.list(FM.cwd);
-    if (name === 'plugins')  renderInstalledPlugins();
-    if (name === 'players')  renderPlayerTable();
-    if (name === 'settings') loadSettingsUI();
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § UTILITIES
-  // ═══════════════════════════════════════════════════════════════════════
-
-  const $ = id => document.getElementById(id);
-
-  function escHtml(s) {
-    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  }
-
-  /** Safely embed a value as a JS string literal in an inline onclick attribute. */
-  function safeStr(s)  { return `'${String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}'`; }
-
-  /** Safely embed a JSON object in an inline onclick attribute. */
-  function safeJson(o) { return `'${JSON.stringify(o).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}'`; }
-
-  function baseName(p)   { return p?.split('/').pop() ?? p; }
-  function parentDir(p)  { return p?.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''; }
-  function pad(n)        { return String(n).padStart(2, '0'); }
-  function sleep(ms)     { return new Promise(r => setTimeout(r, ms)); }
-
-  function fmtDate(ts) {
-    if (!ts) return '—';
-    return new Date(ts).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
-  }
-
-  function fmtPlaytime(ms) {
-    const h = Math.floor(ms / 3_600_000);
-    const m = Math.floor((ms % 3_600_000) / 60_000);
-    return `${h}h ${m}m`;
-  }
-
-  function fmtSize(b) {
-    if (b < 1024)        return `${b} B`;
-    if (b < 1_048_576)   return `${(b/1024).toFixed(1)} KB`;
-    if (b < 1_073_741_824) return `${(b/1_048_576).toFixed(1)} MB`;
-    return `${(b/1_073_741_824).toFixed(2)} GB`;
-  }
-
-  function fmtNum(n) {
-    if (n >= 1_000_000) return `${(n/1_000_000).toFixed(1)}M`;
-    if (n >= 1_000)     return `${(n/1_000).toFixed(1)}K`;
-    return String(n);
-  }
-
-  function panelLog(msg, level = 'info') {
-    const out   = $('console-output');
-    if (!out) return;
-    const div   = document.createElement('div');
-    const color = { info: '#4af', warn: '#fa4', error: '#f44' }[level] ?? '#ccc';
-    div.innerHTML = `<span style="color:${color}">${escHtml(msg)}</span>`;
-    out.appendChild(div);
-    out.scrollTop = out.scrollHeight;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════
-  // § PUBLIC API  (surface exposed to inline HTML handlers)
-  // ═══════════════════════════════════════════════════════════════════════
-  return {
-    auth,
-    tab: switchTab,
-
-    mc: async (action) => {
-      const fd = new FormData(); fd.append('action', action);
-      const r  = await fetch('/api/mc/control', { method: 'POST', body: fd });
-      panelLog(`[MC] ${action}: ${await r.text()}`, 'info');
-    },
-
-    sendCmd: () => {
-      const inp = $('cmd-input');
-      const cmd = inp.value.trim();
-      if (!cmd) return;
-      sendWS(cmd);
-      inp.value = '';
-    },
-
-    clearConsole: () => { $('console-output').innerHTML = ''; S.consoleLine = 0; },
-
-    plugins: {
-      search: async () => {
-        const q = $('plugin-search').value.trim(); if (!q) return;
-        const hits = await PluginEngine.search(q, $('plugin-loader').value, S.config?.serverVersion ?? '1.21.1');
-        renderSearchResults(hits);
-      },
-      install:    (projectJson, loader, version) =>
-        PluginEngine.install(JSON.parse(projectJson), loader, version),
-      uninstall:  pid => PluginEngine.uninstall(pid),
-      updateOne:  pid => PluginEngine.updatePlugin(pid, $('plugin-loader').value, S.config?.serverVersion ?? '1.21.1'),
-      listInstalled: renderInstalledPlugins,
-      checkUpdates: async () => {
-        panelLog('[Plugins] Checking for updates…', 'info');
-        const updates = await PluginEngine.checkUpdates($('plugin-loader').value, S.config?.serverVersion ?? '1.21.1');
-        if (!updates.length) { panelLog('[Plugins] All plugins up to date.', 'info'); return; }
-        const names = updates.map(u => `${u.installed.name} → v${u.latest.version_number}`).join('\n');
-        if (confirm(`${updates.length} update(s) available:\n${names}\n\nInstall all?`)) {
-          for (const u of updates)
-            await PluginEngine.updatePlugin(u.pid, $('plugin-loader').value, S.config?.serverVersion);
-          renderInstalledPlugins();
-        }
-      },
-    },
-
-    players: {
-      showAlts: () => renderAltResults(detectAlts()),
-      filter:   q  => renderPlayerTable(q),
-    },
-
-    files: {
-      list:       p  => FM.list(p),
-      openEditor: p  => FM.openEditor(p),
-      closeEditor: () => FM.closeEditor(),
-      saveEditor:  () => FM.saveEditor(),
-      delete:     p  => FM.delete(p),
-      rename:     p  => FM.rename(p),
-      newFolder:   () => FM.newFolder(),
-      newFile:     () => FM.newFile(),
-      upload:     el => FM.upload(el),
-      download:   p  => FM.download(p),
-    },
-
-    settings: { save: saveSettings },
-  };
-
-})(); // end MCPanel IIFE
-
-
+async function installPlugin(id, ver) {
+  toast('RESOLVING DEPENDENCIES...');
+  try {
+    // Get version file compatible with paper/purpur and the selected MC version
+    const res = await fetch(`https://api.modrinth.com/v2/project/${id}/version?loaders=["paper","purpur"]&game_versions=["${ver}"]`);
+    const versions = await res.json();
+    if(!versions.length) { toast('NO COMPATIBLE BUILD FOUND'); return; }
+    
+    const file = versions[0].files[0];
+    toast('DOWNLOADING ' + file.filename);
+    
+    await fetch(API+'/api/plugins/install', { method:'POST', body: new URLSearchParams({url: file.url, filename: file.filename}) });
+    toast('INSTALLED: ' + file.filename);
+  } catch(e) { toast('INSTALLATION FAILED'); }
+}
 </script>
-</body></html>
+</body>
+</html>
