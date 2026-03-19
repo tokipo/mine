@@ -1,5 +1,5 @@
 ---
-title: Mc
+title: smp
 emoji: 🏆
 colorFrom: purple
 colorTo: yellow
